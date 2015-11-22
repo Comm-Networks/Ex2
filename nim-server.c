@@ -39,20 +39,31 @@ int main(int argc , char** argv) {
 	const char hostname[] = DEFAULT_HOST;
 	char* port = DEFAULT_PORT;
 
-	int sockfd;
+	int listening_sock;
 	unsigned int size;
+	int new_sock;
+	int max_fd;
+	int client_sockets[NUM_CLIENTS];
+
+	fd_set read_fds;
+	fd_set write_fds;
 
 	client_msg c_msg;
 	server_msg s_msg;
 	after_move_msg am_msg;
+	init_server_msg init_s_msg;
 	struct addrinfo  hints;
 	struct addrinfo * my_addr , *rp;
 	struct sockaddr_in client_adrr;
+
+	int i;
 
 	if (argc < 4) {
 		// Error.
 		return EXIT_FAILURE;
 	}
+
+	memset(client_sockets,0,sizeof(client_sockets));
 
 	// Initializing piles.
 	s_msg.n_a = (int)strtol(argv[1], NULL, 10);
@@ -82,42 +93,116 @@ int main(int argc , char** argv) {
 			continue;
 		}
 		//opening a new socket
-		sockfd = socket(rp->ai_family,rp->ai_socktype,rp->ai_protocol);
-		if (sockfd==-1) {
+		listening_sock = socket(rp->ai_family,rp->ai_socktype,rp->ai_protocol);
+		if (listening_sock==-1) {
 			continue;
 		}
-		if (bind(sockfd,rp->ai_addr,rp->ai_addrlen)!=-1){
+		if (bind(listening_sock,rp->ai_addr,rp->ai_addrlen)!=-1){
 			break ; //successfuly binded
 		}
-		close(sockfd);
+		close(listening_sock);
 	}
 	// No address succeeded
 	 if (rp == NULL) {
 	        fprintf(stderr, "Server:failed to bind\n");
-	        close(sockfd);
+	        close(listening_sock);
 	        freeaddrinfo(my_addr);
 	        return EXIT_FAILURE;
 	    }
 	freeaddrinfo(my_addr);
 
-	if (listen(sockfd, 5)==-1) {
+	if (listen(listening_sock, 2) < 0) {
 		printf("problem while listening for an incoming call : %s\n",strerror(errno));
-		close(sockfd);
+		close(listening_sock);
 		return EXIT_FAILURE;
 	}
 
 	size = sizeof(struct sockaddr_in);
-	int new_sock = accept(sockfd, (struct sockaddr*)&client_adrr, &size);
-	if (new_sock < 0) {
-		printf("problem while trying to accept incoming call : %s\n",strerror(errno));
-		close(sockfd);
-		return EXIT_FAILURE;
-	}
 
+
+	struct timeval time;
 	int ret_val=0;
+	int player_turn =0; // player 0 or 1
+	int clients_connected=0;
+	void msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of msg.
+	int msgs_index[NUM_CLIENTS];
+	int first_not_sent_1=0;
+	int first_not_sent_2=0;
+	memset(msgs_index,0,NUM_CLIENTS);
 
-	// Message loop.
+	// Main loop.
 	for (;;) {
+
+		player_turn = (++player_turn) % 1;
+		FD_ZERO(&read_fds);
+		FD_ZERO(&write_fds);
+
+		//add listening socket to read fds set
+		FD_SET(listening_sock,&read_fds);
+		max_fd=listening_sock;
+
+		for (i=0;i<NUM_CLIENTS;i++){
+			int fd =client_sockets[i];
+
+			//if valid socket descriptor, add to read set.
+			if (fd>0){
+				FD_SET(fd,&read_fds);
+				FD_SET(fd,&write_fds);
+			}
+			if (fd>max_fd){
+				max_fd=fd;			}
+		}
+
+		ret_val= select(max_fd+1,&read_fds,NULL,NULL,NULL);
+		if (ret_val<0){
+			printf("Server:failed using select function: %s\n",strerror(errno));
+			break;
+		}
+		//listening socket is read-ready - can accept
+		if (FD_ISSSET(listening_sock,&read_fds)){
+			new_sock = accept(listening_sock, (struct sockaddr*)&client_adrr, &size);
+			if (new_sock<0){
+				printf("problem while trying to accept incoming call : %s\n",strerror(errno));
+				continue;
+			}
+			init_s_msg.client_num= ++clients_connected;
+			FD_SET(new_sock,&write_fds);
+			max_fd = (new_sock>max_fd)? new_sock : max_fd;
+
+			//finding the files that are send-ready.
+			ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+			if (ret_val< 0) {
+				printf("Server:failed using select function: %s\n",strerror(errno));
+				break;
+			}
+			//try to send the initial message to the client.
+			if (FD_ISSET(new_sock,&write_fds)){
+				if ((ret_val=send(new_sock,&init_s_msg,sizeof(init_s_msg)))<sizeof(init_s_msg)){
+					msgs_to_send[player_turn][msgs_index[player_turn]++]=init_s_msg+ret_val;
+				}
+				else {
+					if (player_turn==0){
+						first_not_sent_1++;
+					}
+					else { first_not_sent_2++;}
+				}
+			}
+			else {
+				msgs_to_send[player_turn][msgs_index[player_turn]++]=init_s_msg;
+			}
+		}
+
+		//its an IO operation. all sockets are connected.
+		else {
+
+
+		}
+
+
+
+			// -------- ex1 nim app ---------  //
+
+/*
 		size = sizeof(s_msg);
 		ret_val = sendall(new_sock, &s_msg, &size);
 		if (ret_val < 0) {
@@ -139,6 +224,8 @@ int main(int argc , char** argv) {
 		if (c_msg.heap_name == QUIT_CHAR){
 			break;
 		}
+
+
 		// Do move.
 		am_msg.legal = LEGAL_MOVE;
 		if (c_msg.num_cubes_to_remove > 0) {
@@ -173,26 +260,9 @@ int main(int argc , char** argv) {
 			s_msg.winner = CLIENT_WIN; // Letting the client know.
 
 		}
-		else {
-			// Making server move.
-			if ((s_msg.n_a >= s_msg.n_b) && (s_msg.n_a >= s_msg.n_c)) {
-				s_msg.n_a--;
-
-			} else if ((s_msg.n_b >= s_msg.n_c)) {
-				s_msg.n_b--;
-
-			} else {
-				s_msg.n_c--;
-			}
-
-			// Checking if server won.
-			if (empty_piles(s_msg.n_a,s_msg.n_b,s_msg.n_c)) {
-				// Server won.
-				s_msg.winner = SERVER_WIN; // Letting the client know.
-			}
-		}
+*/
 	}
-	close(sockfd);
+	close(listening_sock);
 	close(new_sock);
 	return (ret_val == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

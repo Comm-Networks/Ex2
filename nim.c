@@ -89,7 +89,6 @@ int main(int argc , char** argv){
 	    }
 	freeaddrinfo(dest_addr);
 
-	printf("Here!\n");
 	int ret_val=0;
 	for (;;) {
 
