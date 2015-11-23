@@ -41,14 +41,14 @@ int main(int argc , char** argv) {
 
 	int listening_sock;
 	unsigned int size;
-	int new_sock;
+	int new_sock,sock;
 	int max_fd;
 	int client_sockets[NUM_CLIENTS];
 
 	fd_set read_fds;
 	fd_set write_fds;
 
-	client_msg c_msg;
+	client_msg c_msg,c_msg_left;
 	server_msg s_msg;
 	after_move_msg am_msg;
 	init_server_msg init_s_msg;
@@ -57,6 +57,7 @@ int main(int argc , char** argv) {
 	struct sockaddr_in client_adrr;
 
 	int i;
+	int offset;
 
 	if (argc < 4) {
 		// Error.
@@ -79,12 +80,12 @@ int main(int argc , char** argv) {
 	memset(&hints,0,sizeof(struct addrinfo));
 	hints.ai_family = PF_INET;
 	hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = 0;
+	hints.ai_flags = 0;
 	hints.ai_protocol = 0;
 	int status = getaddrinfo(hostname,port,&hints,&my_addr);
 	if (status!=0){
-		 printf("getaddrinfo error: %s\n", strerror(status));
-		 return EXIT_FAILURE;
+		printf("getaddrinfo error: %s\n", strerror(status));
+		return EXIT_FAILURE;
 	}
 
 	// loop through all the results and connect to the first we can
@@ -103,12 +104,12 @@ int main(int argc , char** argv) {
 		close(listening_sock);
 	}
 	// No address succeeded
-	 if (rp == NULL) {
-	        fprintf(stderr, "Server:failed to bind\n");
-	        close(listening_sock);
-	        freeaddrinfo(my_addr);
-	        return EXIT_FAILURE;
-	    }
+	if (rp == NULL) {
+		fprintf(stderr, "Server:failed to bind\n");
+		close(listening_sock);
+		freeaddrinfo(my_addr);
+		return EXIT_FAILURE;
+	}
 	freeaddrinfo(my_addr);
 
 	if (listen(listening_sock, 2) < 0) {
@@ -128,6 +129,8 @@ int main(int argc , char** argv) {
 	int msgs_index[NUM_CLIENTS];
 	int first_not_sent_1=0;
 	int first_not_sent_2=0;
+	int msg_fully_sent=0;
+
 	memset(msgs_index,0,NUM_CLIENTS);
 
 	// Main loop.
@@ -166,6 +169,7 @@ int main(int argc , char** argv) {
 				continue;
 			}
 			init_s_msg.client_num= ++clients_connected;
+			client_sockets[init_s_msg.client_num-1]=new_sock;
 			FD_SET(new_sock,&write_fds);
 			max_fd = (new_sock>max_fd)? new_sock : max_fd;
 
@@ -177,8 +181,9 @@ int main(int argc , char** argv) {
 			}
 			//try to send the initial message to the client.
 			if (FD_ISSET(new_sock,&write_fds)){
-				if ((ret_val=send(new_sock,&init_s_msg,sizeof(init_s_msg)))<sizeof(init_s_msg)){
-					msgs_to_send[player_turn][msgs_index[player_turn]++]=init_s_msg+ret_val;
+				size = sizeof(init_s_msg);
+				if ((ret_val=sendall(new_sock,&init_s_msg,&size))==-1){
+					msgs_to_send[player_turn][msgs_index[player_turn]++]=&init_s_msg+ret_val;
 				}
 				else {
 					if (player_turn==0){
@@ -194,15 +199,62 @@ int main(int argc , char** argv) {
 
 		//its an IO operation. all sockets are connected.
 		else {
+			s_msg.player_turn=(short) player_turn;
+			i=msgs_index[player_turn] % MSG_NUM;
+			msgs_index[player_turn]=i++;
+			msgs_to_send[player_turn][i]=s_msg;
+			sock=client_sockets[player_turn];
+
+
+			ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+			if (ret_val< 0) {
+				printf("Server:failed using select function: %s\n",strerror(errno));
+				break;
+			}
+			//trying to send the server msg or any previous server msg to client.
+			if (FD_ISSET(sock,write_fds)){
+				i= player_turn==0 ? first_not_sent_1 : first_not_sent_2;
+				size=sizeof(msgs_to_send[player_turn][i]);
+				ret_val = sendall(sock, &msgs_to_send[player_turn][i], &size);
+				//part of msg was sent. update the msg in the array to the part that wasn't sent.
+				if (ret_val==-1) {
+					offset = sizeof(msgs_to_send[player_turn][i]) -size ;
+					&(msgs_to_send[player_turn][i])+=offset;
+					msg_fully_sent=0;
+				}
+				else {
+					if (player_turn==0){
+						first_not_sent_1++;
+					}
+					else { first_not_sent_2++;}
+					msg_fully_sent=1;
+				}
+			}
+			ret_val=select(max_fd+1,&read_fds,NULL,NULL);
+			if (ret_val< 0) {
+				printf("Server:failed using select function: %s\n",strerror(errno));
+				break;
+			}
+
+			if (msg_fully_sent){
+				if (FD_ISSET(sock,read_fds)){
+					ret_val = recvall(sock,&c_msg_left,&size);
+				}
+
+
+			}
+
+
+
 
 
 		}
 
 
 
-			// -------- ex1 nim app ---------  //
+		// -------- ex1 nim app ---------  //
 
-/*
+		/*
 		size = sizeof(s_msg);
 		ret_val = sendall(new_sock, &s_msg, &size);
 		if (ret_val < 0) {
@@ -260,7 +312,7 @@ int main(int argc , char** argv) {
 			s_msg.winner = CLIENT_WIN; // Letting the client know.
 
 		}
-*/
+		 */
 	}
 	close(listening_sock);
 	close(new_sock);
