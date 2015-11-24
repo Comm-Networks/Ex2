@@ -37,15 +37,15 @@
 		short n_c; /* heap C size */
 		char  winner; /* w-this client won/ l- this client lost/ n- no winner yet */
 		short player_turn; /* turn of player num 1 or 2*/
-		char* msg; /* sending the msg from one client to another*/
+		char  msg[1024]; /* sending the msg from one client to another*/
 	}server_msg;
 #pragma pack(pop)
 
 #pragma pack(push, 1)
 	typedef struct  {
-		short num_cubes_to_remove;
+		short num_cubes_to_remove; /* 0 if we want only to send message */
 		char  heap_name; /* the heap we remove cubes from*/
-		char* msg; /* potential chat message from one client to another*/
+		char msg[1024]; /* potential chat message from one client to another*/
 	}client_msg;
 #pragma pack(pop)
 

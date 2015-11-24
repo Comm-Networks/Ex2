@@ -35,6 +35,9 @@ int empty_piles(int n_a,int n_b,int n_c) {
 	return (n_a == 0) && (n_b == 0) && (n_c == 0);
 }
 
+
+
+
 int main(int argc , char** argv) {
 	const char hostname[] = DEFAULT_HOST;
 	char* port = DEFAULT_PORT;
@@ -45,32 +48,38 @@ int main(int argc , char** argv) {
 	int max_fd;
 	int client_sockets[NUM_CLIENTS];
 
+
 	fd_set read_fds;
 	fd_set write_fds;
 
-	client_msg c_msg,c_msg_left;
-	server_msg s_msg;
+	client_msg c_msg[NUM_CLIENTS],c_msg_recieved[NUM_CLIENTS];
+	server_msg s_msg[NUM_CLIENTS];
 	after_move_msg am_msg;
 	init_server_msg init_s_msg;
 	struct addrinfo  hints;
 	struct addrinfo * my_addr , *rp;
 	struct sockaddr_in client_adrr;
 
-	int i;
+	int i,j,k=0;
 	int offset;
+
+	memset(client_sockets,0,sizeof(client_sockets));
 
 	if (argc < 4) {
 		// Error.
 		return EXIT_FAILURE;
 	}
 
-	memset(client_sockets,0,sizeof(client_sockets));
-
 	// Initializing piles.
-	s_msg.n_a = (int)strtol(argv[1], NULL, 10);
-	s_msg.n_b = (int)strtol(argv[2], NULL, 10);
-	s_msg.n_c = (int)strtol(argv[3], NULL, 10);
-	s_msg.winner = NO_WIN;
+	int n_a =(int)strtol(argv[1], NULL, 10);
+	int n_b = (int)strtol(argv[2], NULL, 10);
+	int n_c = (int)strtol(argv[3], NULL, 10);
+
+	s_msg[0].n_a = n_a;
+	s_msg[0].n_b = n_b;
+	s_msg[0].n_c = n_c;
+	s_msg[0].winner = NO_WIN;
+	s_msg[0].msg="";
 
 	if (argc > 4) {
 		port = argv[4];
@@ -103,6 +112,7 @@ int main(int argc , char** argv) {
 		}
 		close(listening_sock);
 	}
+
 	// No address succeeded
 	if (rp == NULL) {
 		fprintf(stderr, "Server:failed to bind\n");
@@ -118,20 +128,22 @@ int main(int argc , char** argv) {
 		return EXIT_FAILURE;
 	}
 
-	size = sizeof(struct sockaddr_in);
+
 
 
 	struct timeval time;
 	int ret_val=0;
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
-	void msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of msg.
+	void msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
 	int msgs_index[NUM_CLIENTS];
-	int first_not_sent_1=0;
-	int first_not_sent_2=0;
-	int msg_fully_sent=0;
+	int first_not_sent_1=0;	int first_not_sent_2=0;
+	int msg_fully_sent[NUM_CLIENTS];
+	int cmsg_fully_recieved[NUM_CLIENTS];
 
 	memset(msgs_index,0,NUM_CLIENTS);
+	memset(msg_fully_sent,0,NUM_CLIENTS);
+	memset(cmsg_fully_recieved,0,NUM_CLIENTS);
 
 	// Main loop.
 	for (;;) {
@@ -147,7 +159,7 @@ int main(int argc , char** argv) {
 		for (i=0;i<NUM_CLIENTS;i++){
 			int fd =client_sockets[i];
 
-			//if valid socket descriptor, add to read set.
+			//if valid socket descriptor, add to read and write sets.
 			if (fd>0){
 				FD_SET(fd,&read_fds);
 				FD_SET(fd,&write_fds);
@@ -156,6 +168,7 @@ int main(int argc , char** argv) {
 				max_fd=fd;			}
 		}
 
+		//return read-ready sockets
 		ret_val= select(max_fd+1,&read_fds,NULL,NULL,NULL);
 		if (ret_val<0){
 			printf("Server:failed using select function: %s\n",strerror(errno));
@@ -163,6 +176,7 @@ int main(int argc , char** argv) {
 		}
 		//listening socket is read-ready - can accept
 		if (FD_ISSSET(listening_sock,&read_fds)){
+			size = sizeof(struct sockaddr_in);
 			new_sock = accept(listening_sock, (struct sockaddr*)&client_adrr, &size);
 			if (new_sock<0){
 				printf("problem while trying to accept incoming call : %s\n",strerror(errno));
@@ -186,6 +200,7 @@ int main(int argc , char** argv) {
 					msgs_to_send[player_turn][msgs_index[player_turn]++]=&init_s_msg+ret_val;
 				}
 				else {
+					msg_fully_sent[player_turn]=1;
 					if (player_turn==0){
 						first_not_sent_1++;
 					}
@@ -199,6 +214,7 @@ int main(int argc , char** argv) {
 
 		//its an IO operation. all sockets are connected.
 		else {
+			s_msg = (player_turn==0) ? s_msg_1 : s_msg_2;
 			s_msg.player_turn=(short) player_turn;
 			i=msgs_index[player_turn] % MSG_NUM;
 			msgs_index[player_turn]=i++;
@@ -220,14 +236,14 @@ int main(int argc , char** argv) {
 				if (ret_val==-1) {
 					offset = sizeof(msgs_to_send[player_turn][i]) -size ;
 					&(msgs_to_send[player_turn][i])+=offset;
-					msg_fully_sent=0;
+					msg_fully_sent[player_turn]=0;
 				}
 				else {
 					if (player_turn==0){
 						first_not_sent_1++;
 					}
 					else { first_not_sent_2++;}
-					msg_fully_sent=1;
+					msg_fully_sent[player_turn]=1;
 				}
 			}
 			ret_val=select(max_fd+1,&read_fds,NULL,NULL);
@@ -236,13 +252,43 @@ int main(int argc , char** argv) {
 				break;
 			}
 
-			if (msg_fully_sent){
+			//a full message was sent to the client, now we want to recieve a reply.
+			if (msg_fully_sent[player_turn]){
 				if (FD_ISSET(sock,read_fds)){
-					ret_val = recvall(sock,&c_msg_left,&size);
+					size = sizeof(client_msg)-j;
+					ret_val = recvall(sock,&c_msg_recieved[player_turn],&size);
+					if (ret_val<0){
+						cmsg_fully_recieved[player_turn]=0;
+						&c_msg[player_turn]+j=c_msg_recieved[player_turn];
+						j+=size;
+					}
+					else {
+						cmsg_fully_recieved[player_turn]=1;
+						&c_msg[player_turn]+j=c_msg_recieved[player_turn];
+
+						j=0;
+					}
 				}
-
-
 			}
+			//checks if the second client is read-ready. If it is, try to read from it.
+			int opp_player = (player_turn+1) % 1 ;
+			if (FD_ISSET(client_sockets[opp_player],read_fds)){
+				sock=client_sockets[opp_player];
+				size = sizeof(client_msg)-k;
+				ret_val = recvall(sock,&c_msg_recieved[opp_player],&size);
+				if (ret_val<0){
+					cmsg_fully_recieved[opp_player]=0;
+					&c_msg[opp_player]+j=c_msg_recieved[opp_player];
+					k+=size;
+				}
+				else {
+					cmsg_fully_recieved[opp_player]=1;
+					&c_msg[opp_player]+k=c_msg_recieved[opp_player];
+					k=0;
+				}
+			}
+
+
 
 
 
@@ -252,9 +298,15 @@ int main(int argc , char** argv) {
 
 
 
-		// -------- ex1 nim app ---------  //
 
-		/*
+
+	}
+
+
+
+	// -------- ex1 nim app ---------  //
+
+	/*
 		size = sizeof(s_msg);
 		ret_val = sendall(new_sock, &s_msg, &size);
 		if (ret_val < 0) {
@@ -312,10 +364,10 @@ int main(int argc , char** argv) {
 			s_msg.winner = CLIENT_WIN; // Letting the client know.
 
 		}
-		 */
-	}
-	close(listening_sock);
-	close(new_sock);
-	return (ret_val == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+	 */
+}
+close(listening_sock);
+close(new_sock);
+return (ret_val == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
