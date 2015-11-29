@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <time.h>
 
 
 #define DEFAULT_HOST "localhost"
@@ -37,9 +38,15 @@
 		short n_c; /* heap C size */
 		char  winner; /* w-this client won/ l- this client lost/ n- no winner yet */
 		short player_turn; /* turn of player num 1 or 2*/
-		char  msg[1024]; /* sending the msg from one client to another*/
+		short cubes_removed; /* num of cubes removed by opponent*/
+		char  heap_name; /*name of heap , the opponent removed cubes from*/
 	}server_msg;
 #pragma pack(pop)
+
+#pragma pack(push,1)
+	typedef struct {
+		char  msg[1024]; /* sending the msg from one client to another*/
+	}chat_msg;
 
 #pragma pack(push, 1)
 	typedef struct  {
