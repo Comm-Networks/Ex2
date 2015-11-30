@@ -24,6 +24,21 @@
 #define NUM_CLIENTS 2
 #define MSG_NUM 100
 
+
+
+#pragma pack(push,1)
+	typedef enum {
+		INIT_MSG,
+		SERVER_MSG,
+		CHAT_MSG,
+		CLIENT_MSG,
+		AM_MSG,
+		REJECTED_MSG
+	}msg_type;
+#pragma pack(pop)
+
+
+
 #pragma pack(push,1)
 	typedef struct{
 		short client_num; //informs the client with his number.
@@ -45,14 +60,14 @@
 
 #pragma pack(push,1)
 	typedef struct {
-		char  msg[1024]; /* sending the msg from one client to another*/
+		char  msg[255]; /* sending the msg from one client to another*/
 	}chat_msg;
 
 #pragma pack(push, 1)
 	typedef struct  {
 		short num_cubes_to_remove; /* 0 if we want only to send message */
 		char  heap_name; /* the heap we remove cubes from*/
-		char msg[1024]; /* potential chat message from one client to another*/
+		char msg[255]; /* potential chat message from one client to another*/
 	}client_msg;
 #pragma pack(pop)
 

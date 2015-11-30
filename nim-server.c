@@ -2,33 +2,6 @@
 #include "nim_protocol.h"
 
 
-int recvall(int sockfd,void* buff,unsigned int *len){
-	int total = 0; /* how many bytes we've read */
-	int bytesleft = *len; /* how many we have left to read */
-	int n;
-	while(total < *len) {
-		n = recv(sockfd, buff+total, bytesleft, 0);
-		if (n == -1) { break; }
-		total += n;
-		bytesleft -= n;
-	}
-	*len = total; /* return number actually read here */
-	return n == -1 ? -1:0; /*-1 on failure, 0 on success */
-}
-
-int sendall(int sockfd,void* buff,unsigned int *len){
-	int total = 0; /* how many bytes we've sent */
-	int bytesleft = *len; /* how many we have left to send */
-	int n;
-	while(total < *len) {
-		n = send(sockfd, buff+total, bytesleft, 0);
-		if (n == -1) { break; }
-		total += n;
-		bytesleft -= n;
-	}
-	*len = total; /* return number actually sent here */
-	return n == -1 ? -1:0; /*-1 on failure, 0 on success */
-}
 
 //check if all piles are empty
 int empty_piles(int n_a,int n_b,int n_c) {
@@ -46,17 +19,18 @@ int main(int argc , char** argv) {
 	unsigned int size;
 	int new_sock,sock;
 	int max_fd;
-	int client_sockets[NUM_CLIENTS];
+	int client_sockets[NUM_CLIENTS+1]; //needs another socket for rejected client
 
 
 	fd_set read_fds;
 	fd_set write_fds;
 
-	client_msg c_msg[NUM_CLIENTS],c_msg_recieved[NUM_CLIENTS];
+	client_msg c_msg[NUM_CLIENTS];
+	void c_msg_recieved[NUM_CLIENTS];
 	server_msg s_msg[NUM_CLIENTS];
 	after_move_msg am_msg;
 	init_server_msg init_s_msg;
-	chat_msg chat;
+	chat_msg chat[NUM_CLIENTS];
 	struct addrinfo  hints;
 	struct addrinfo * my_addr , *rp;
 	struct sockaddr_in client_adrr;
@@ -123,7 +97,7 @@ int main(int argc , char** argv) {
 	}
 	freeaddrinfo(my_addr);
 
-	if (listen(listening_sock, 2) < 0) {
+	if (listen(listening_sock, 5) < 0) {
 		printf("problem while listening for an incoming call : %s\n",strerror(errno));
 		close(listening_sock);
 		return EXIT_FAILURE;
@@ -137,15 +111,20 @@ int main(int argc , char** argv) {
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
 	void msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
+	msg_type types_of_msgs[NUM_CLIENTS][MSG_NUM]; // types of messages to send;
 	int msgs_index[NUM_CLIENTS];
 	int first_not_sent_1=0;	int first_not_sent_2=0;
 	int msg_fully_sent[NUM_CLIENTS];
 	int cmsg_fully_recieved[NUM_CLIENTS];
+	msg_type type;
 
 
 	memset(msgs_index,0,NUM_CLIENTS);
 	memset(msg_fully_sent,0,NUM_CLIENTS);
 	memset(cmsg_fully_recieved,0,NUM_CLIENTS);
+
+
+
 
 	// Main loop.
 	for (;;) {
@@ -167,7 +146,8 @@ int main(int argc , char** argv) {
 				FD_SET(fd,&write_fds);
 			}
 			if (fd>max_fd){
-				max_fd=fd;			}
+				max_fd=fd;
+			}
 		}
 
 		//return read-ready sockets
@@ -189,67 +169,122 @@ int main(int argc , char** argv) {
 			FD_SET(new_sock,&write_fds);
 			max_fd = (new_sock>max_fd)? new_sock : max_fd;
 
-			//finding the files that are send-ready.
-			ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+			//finding the clients that are send-ready.
+			ret_val=select(max_fd+1,NULL,&write_fds,NULL,(0,0));
 			if (ret_val< 0) {
 				printf("Server:failed using select function: %s\n",strerror(errno));
 				break;
 			}
-			//try to send the initial message to the client.
+
+			//try to send the initial message to the client/ letting him know he is rejected.
 			if (FD_ISSET(new_sock,&write_fds)){
-				size = sizeof(init_s_msg);
-				if ((ret_val=send(new_sock,&init_s_msg,size))==-1){
-					msgs_to_send[player_turn][msgs_index[player_turn]++]=&init_s_msg+ret_val;
-				}
-				else {
-					msg_fully_sent[player_turn]=1;
-					if (player_turn==0){
-						first_not_sent_1++;
+
+				if (clients_connected>2){
+					type=REJECTED_MSG;
+					size = sizeof(type);
+					if (send(new_sock,&type,size)==-1){
+						//need to implement
 					}
-					else { first_not_sent_2++;}
+					close(new_sock);
+					client_sockets[clients_connected--]=-1;
+				}
+
+				//not a reject client
+				else {
+					type=INIT_MSG;
+					types_of_msgs[player_turn][msgs_index[player_turn]]=type;
+					size = sizeof(type);
+					//informs the user which message he is going to recieve now
+					if ((ret_val=send(new_sock,&type,size))==-1){
+						//need to implement what to do when send fails.
+					}
+					ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+					if (ret_val< 0) {
+						printf("Server:failed using select function: %s\n",strerror(errno));
+						break;
+					}
+					//sending the init message if the socket is ready to recieve.
+					if (FD_ISSET(new_sock,&write_fds)){
+						size=sizeof(init_s_msg);
+						if ((ret_val=send(new_sock,&init_s_msg,size))<size){
+							if (ret_val==-1){
+								//need to implement.
+							}
+							msgs_to_send[player_turn][msgs_index[player_turn]++]=&init_s_msg+ret_val;
+						}
+						else {
+							msg_fully_sent[player_turn]=1;
+							if (player_turn==0){
+								first_not_sent_1++;
+							}
+							else {
+								first_not_sent_2++;
+							}
+						}
+					}
+					else {
+						msgs_to_send[player_turn][msgs_index[player_turn]++]=init_s_msg;
+					}
 				}
 			}
 			else {
+				types_of_msgs[player_turn][msgs_index[player_turn]]=INIT_MSG;
 				msgs_to_send[player_turn][msgs_index[player_turn]++]=init_s_msg;
 			}
+
 		}
 
 		//its an IO operation. all sockets are connected.
-		else {
-			s_msg[player_turn].player_turn=(short) player_turn;
-			//sending the first message we have't sent yet.
-			i=msgs_index[player_turn] % MSG_NUM;
-			msgs_index[player_turn]=i++;
-			msgs_to_send[player_turn][i]=s_msg[player_turn];
-			sock=client_sockets[player_turn];
+		else if (clients_connected==2) {
 
+			//if player's message was not fully recieved, we won't send him a new server message for now
+			if (cmsg_fully_recieved[player_turn]){
+				s_msg[player_turn].player_turn=(short) player_turn;
+				//sending the first message we have't sent yet.
+				i=msgs_index[player_turn] % MSG_NUM;
+				msgs_index[player_turn]=i++;
+				msgs_to_send[player_turn][i]=s_msg[player_turn];
+				types_of_msgs[player_turn][i]=SERVER_MSG;
+				sock=client_sockets[player_turn];
 
-			ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
-			if (ret_val< 0) {
-				printf("Server:failed using select function: %s\n",strerror(errno));
-				break;
-			}
-			//trying to send the server msg or any previous server msg to client.
-			if (FD_ISSET(sock,&write_fds)){
-				i= player_turn==0 ? first_not_sent_1 : first_not_sent_2;
-				size=sizeof(msgs_to_send[player_turn][i]);
-				ret_val = send(sock, &msgs_to_send[player_turn][i], size);
-				//part of msg was sent. update the msg in the array to the part that wasn't sent.
-				if (ret_val==-1) {
-					offset = sizeof(msgs_to_send[player_turn][i]) -size ;
-					&(msgs_to_send[player_turn][i])+=offset;
-					msg_fully_sent[player_turn]=0;
+				ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+				if (ret_val< 0) {
+					printf("Server:failed using select function: %s\n",strerror(errno));
+					break;
 				}
-				else {
-					if (player_turn==0){
-						first_not_sent_1++;
+				//trying to send the server msg or any previous server msg to client.
+				if (FD_ISSET(sock,&write_fds)){
+					i= player_turn==0 ? first_not_sent_1 : first_not_sent_2;
+					size=sizeof(msgs_to_send[player_turn][i]);
+					type = types_of_msgs[player_turn][i];
+					ret_val = send(sock,&type,sizeof(type));
+					if (ret_val<0){
+						//implement...
+					}
+
+					ret_val = send(sock, &msgs_to_send[player_turn][i], size);
+					if (ret_val ==-1){
+						//implement
+					}
+					//part of msg was sent. update the msg in the array to the part that wasn't sent.
+					else if (ret_val<size ) {
+						offset = sizeof(msgs_to_send[player_turn][i]) -size ;
+						&(msgs_to_send[player_turn][i])+=offset;
+						msg_fully_sent[player_turn]=0;
 					}
 					else {
-						first_not_sent_2++;
+						if (player_turn==0){
+							first_not_sent_1++;
+						}
+						else {
+							first_not_sent_2++;
+						}
+						msg_fully_sent[player_turn]=1;
 					}
-					msg_fully_sent[player_turn]=1;
 				}
 			}
+
+
 			ret_val=select(max_fd+1,&read_fds,NULL,NULL,NULL);
 			if (ret_val< 0) {
 				printf("Server:failed using select function: %s\n",strerror(errno));
@@ -258,20 +293,49 @@ int main(int argc , char** argv) {
 
 			//a full message was sent to the client, now we want to recieve a reply.
 			if (msg_fully_sent[player_turn]){
+
 				if (FD_ISSET(sock,&read_fds)){
-					size = sizeof(client_msg)-j;
-					ret_val = recv(sock,&c_msg_recieved[player_turn],size);
-					if (ret_val<0){
-						cmsg_fully_recieved[player_turn]=0;
-						//updating the client message to be the message we recieved so far.
-						memcpy(c_msg+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
-						j+=size;
+
+					ret_val = recv(sock,&type,sizeof(type));
+					if (type==CHAT_MSG){
+						size =sizeof(chat_msg)-j;
+						ret_val = recv(sock,&c_msg_recieved[player_turn],size);
+						if (ret_val ==-1){
+							//implement
+						}
+						else if (ret_val<size){
+							cmsg_fully_recieved[player_turn]=0;
+							//updating the client message to be the message we recieved so far.
+							memcpy(chat+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
+							j+=size;
+						}
+						else {
+							cmsg_fully_recieved[player_turn]=1;
+							memcpy(chat+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
+							j=0;
+						}
+						memset(&c_msg_recieved[player_turn],0,size); // initlializing the message recieved to recieve another message next time.
+
 					}
 					else {
-						cmsg_fully_recieved[player_turn]=1;
-						memcpy(c_msg+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
 
-						j=0;
+						size = sizeof(client_msg)-j;
+						ret_val = recv(sock,&c_msg_recieved[player_turn],size);
+						if (ret_val ==-1){
+							//implement...
+						}
+						else if (ret_val<size){
+							cmsg_fully_recieved[player_turn]=0;
+							//updating the client message to be the message we recieved so far.
+							memcpy(c_msg+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
+							j+=size;
+						}
+						else {
+							cmsg_fully_recieved[player_turn]=1;
+							memcpy(c_msg+player_turn+j,c_msg_recieved+player_turn,sizeof(c_msg_recieved[player_turn]));
+							j=0;
+						}
+						memset(&c_msg_recieved[player_turn],0,size); // initlializing the message recieved to recieve another message next time.
 					}
 				}
 			}
@@ -281,7 +345,7 @@ int main(int argc , char** argv) {
 				sock=client_sockets[opp_player];
 				size = sizeof(client_msg)-k;
 				ret_val = recv(sock,&c_msg_recieved[opp_player],size);
-				if (ret_val<0){
+				if (ret_val<size){
 					cmsg_fully_recieved[opp_player]=0;
 					memcpy(c_msg+opp_player+k,c_msg_recieved+opp_player,sizeof(c_msg_recieved[opp_player]));
 					k+=size;
@@ -359,7 +423,7 @@ int main(int argc , char** argv) {
 						am_msg.legal = ILLEGAL_MOVE;
 					}
 					size = sizeof(am_msg);
-					ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+					ret_val=select(max_fd+1,NULL,&write_fds,NULL,(0,0));
 					if (ret_val< 0) {
 						printf("Server:failed using select function: %s\n",strerror(errno));
 						close(client_sockets[player_turn]);
