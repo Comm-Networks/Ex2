@@ -16,7 +16,7 @@
 #define PILE_B_CHAR 'B'
 #define PILE_C_CHAR 'C'
 #define QUIT_CHAR 'Q'
-#define MSG_CHAR ''
+#define MSG_CHAR 'M'
 #define CLIENT_LOST 'l'
 #define CLIENT_WIN 'w'
 #define NO_WIN 'n'
