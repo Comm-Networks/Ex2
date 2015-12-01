@@ -60,8 +60,8 @@
 
 #pragma pack(push,1)
 	typedef struct {
-		char  msg[255]; /* sending the msg from one client to another*/
 		short sender_num;
+		char  msg[255]; /* sending the msg from one client to another*/
 	}chat_msg;
 
 #pragma pack(push, 1)
