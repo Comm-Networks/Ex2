@@ -53,6 +53,17 @@ int main(int argc , char** argv){
 		hostname=argv[1];
 	}
 
+	short client_num;
+	short my_turn;
+
+	// For select.
+	fd_set stdin_set;
+	FD_ZERO(&stdin_set);
+	FD_SET(fileno(stdin), &stdin_set);
+	fd_set sock_set;
+	FD_ZERO(&sock_set);
+
+
 	// Obtain address(es) matching host/port
 	memset(&hints,0,sizeof(struct addrinfo));
 	hints.ai_family = AF_INET;
@@ -89,8 +100,88 @@ int main(int argc , char** argv){
 	    }
 	freeaddrinfo(dest_addr);
 
+	// Adding socket to select set.
+	FD_SET(sockfd, &sock_set);
+
 	int ret_val=0;
+
+	// Getting init msg.
+	msg m;
+	size = sizeof(m);
+	if ((ret_val=recvall(sockfd,(void *)&m, &size))<0){
+		fprintf(stderr, "Client:failed to read from server\n");
+		break;
+	}
+
+	if (m.type == REJECTED_MSG) {
+		// Server notified the client that it was rejected.
+		printf("Client rejected\n");
+		// TODO: Do we need to close anything here?
+		exit(1);
+
+	} else if (m.type == INIT_MSG) {
+		// Fetch client num and display messages.
+		client_num = m.data.init_msg.client_num;
+		my_turn = (client_num == 1);
+		printf("You are client %hd\n", client_num);
+		if (client_num == 1) {
+			printf("Waiting to client 2 to connect\n");
+		}
+
+	} else {
+		// Shouldn't get here.
+		// TODO: Handle.
+	}
+
 	for (;;) {
+
+		// Checking if server is ready to send.
+		ret_val = select(sockfd + 1, &sock_set, NULL, NULL, (0, 0));
+		if (ret_val == -1) {
+			// Error.
+			// TODO: Handle.
+
+		} else if (ret_val == 0) {
+			// No data from server.
+			if (client_num == 2) {
+				// Nothing to do.
+				// TODO: Maybe sleep?
+				continue;
+			}
+
+		} else if (ret_val == 1) {
+			// Recv data from server.
+			if ((ret_val=recvall(sockfd,(void *)&m, &size))<0){
+				fprintf(stderr, "Client:failed to read from server\n");
+				break;
+			}
+
+			switch (m.type) {
+			case SERVER_MSG:
+				break;
+
+			case AM_MSG:
+				if (my_turn) {
+					char * am_msg = m.data.am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
+					printf("%s\n",am_msg);
+
+				} else {
+					if (m.data.am_msg.legal == ILLEGAL_MOVE) {
+						// Notify that other client made illegal move.
+						printf("Client %hd made an illegal move\n", (NUM_CLIENTS - client_num + 1));
+
+						// Now it's my turn.
+						my_turn = 1;
+					}
+				}
+
+				break;
+
+			case CHAT_MSG:
+				printf("Client %hd: %s\n", m.data.chat.sender_num, m.data.chat.msg);
+				break;
+			}
+		}
 
 		//getting heap info and winner info from server
 		size = sizeof(s_msg);
@@ -107,8 +198,18 @@ int main(int argc , char** argv){
 		}
 		else {
 			printf("Your turn:\n");
-			scanf(" %c %hd", &pile, &number); // Space before %c is to consume the newline char from the previous scanf.
-			if (pile == QUIT_CHAR){
+			ret_val = select(fileno(stdin) + 1, &stdin_set, NULL, NULL, (0, 0));
+			if (ret_val == -1) {
+				// Error.
+				// TODO: Handle.
+			} else if (ret_val == 0) {
+				// No input.
+			}
+
+			// If here, user is trying to add input.
+
+			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
+			if (pile == QUIT_CHAR) {
 				c_msg.heap_name=pile;
 				c_msg.num_cubes_to_remove=0;
 				//letting the server know we close the socket
@@ -132,24 +233,35 @@ int main(int argc , char** argv){
 		        	// Will not reach as the server will not send anything at this point.
 		        	break;
 		        }
-			}
-			//sending the move to the server
-			c_msg.heap_name=pile;
-			c_msg.num_cubes_to_remove=number;
-			size = sizeof(c_msg);
-			if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
-				fprintf(stderr, "Client:failed to write to server\n");
-				break;
-			}
-			//receiving from server a message if that was a legal move or not
-			size = sizeof(am_msg);
-			if ((ret_val=recvall(sockfd,(void *)&am_msg,&size)<0)){
-				fprintf(stderr, "Client:failed to read from server\n");
-				break;
-			}
-			char * msg = am_msg.legal == ILLEGAL_MOVE ? "Illegal move\n" : "Move accepted\n";
-			printf("%s",msg);
+			} else if (pile == MSG_CHAR) {
+				// Client wants to send a message. Getting the message.
+				char msg[256];
+				scanf("SG %s\n", &msg);
 
+				// Sending message to server.
+				// TODO
+
+			} else {
+				// Client wants to make his move. Getting the pile number.
+				scanf(" %hd", &number);
+
+				//sending the move to the server
+				c_msg.heap_name=pile;
+				c_msg.num_cubes_to_remove=number;
+				size = sizeof(c_msg);
+				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
+					fprintf(stderr, "Client:failed to write to server\n");
+					break;
+				}
+				//receiving from server a message if that was a legal move or not
+				size = sizeof(am_msg);
+				if ((ret_val=recvall(sockfd,(void *)&am_msg,&size)<0)){
+					fprintf(stderr, "Client:failed to read from server\n");
+					break;
+				}
+				char * msg = am_msg.legal == ILLEGAL_MOVE ? "Illegal move\n" : "Move accepted\n";
+				printf("%s",msg);
+			}
 		}
 	}
 

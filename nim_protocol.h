@@ -16,6 +16,7 @@
 #define PILE_B_CHAR 'B'
 #define PILE_C_CHAR 'C'
 #define QUIT_CHAR 'Q'
+#define MSG_CHAR ''
 #define CLIENT_LOST 'l'
 #define CLIENT_WIN 'w'
 #define NO_WIN 'n'
@@ -37,18 +38,6 @@
 	}msg_type;
 #pragma pack(pop)
 
-#pragma pack(push,1)
-	typedef struct {
-		msg_type type;
-		union {
-			init_server_msg init_msg;
-			server_msg s_msg;
-			chat_msg chat;
-			client_msg c_msg;
-			after_move_msg am_msg;
-
-		}data;
-	}msg;
 
 #pragma pack(push,1)
 	typedef struct{
@@ -86,5 +75,20 @@
 	typedef struct  {
 		char legal ; // g - good b- illegal
 	}after_move_msg;
+#pragma pack(pop)
+
+
+#pragma pack(push,1)
+	typedef union {
+		init_server_msg init_msg;
+		server_msg s_msg;
+		chat_msg chat;
+		client_msg c_msg;
+		after_move_msg am_msg;
+	} data_union;
+	typedef struct {
+		msg_type type;
+		data_union data;
+	} msg;
 #pragma pack(pop)
 
