@@ -32,7 +32,6 @@ void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,in
 				*off=0;
 			}
 		}
-		memset(&(c_msg_recieved[player_turn]),0,size); // initlializing the message recieved to recieve another message next time.
 
 	}
 	else { //a client move message
@@ -54,7 +53,6 @@ void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,in
 				*off=0;
 			}
 		}
-		memset(&(c_msg_recieved[player_turn]),0,size); // initlializing the message recieved to recieve another message next time.
 	}
 }
 
@@ -105,6 +103,8 @@ int main(int argc , char** argv) {
 	s_msg[0].n_b = n_b;
 	s_msg[0].n_c = n_c;
 	s_msg[0].winner = NO_WIN;
+	s_msg[0].player_turn=0;
+
 
 
 	if (argc > 4) {
@@ -245,14 +245,14 @@ int main(int argc , char** argv) {
 
 		//its an IO operation. all sockets are connected.
 		else {
-
+			int opp_player = (player_turn+1) % 1 ;
 			//if player's message was not fully recieved, we won't send him a new server message for now
 			if (cmsg_fully_recieved[player_turn]){
 
 				if (!init_msg_sent[player_turn]){
 					//sending the first message we have't sent yet.
 					i=msgs_index[player_turn] % MSG_NUM;
-					msgs_index[player_turn]=i++;
+					msgs_index[player_turn]=i+1;
 					temp_type=SERVER_MSG;
 					msgs_to_send[player_turn][i].type=temp_type;
 					msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
@@ -323,7 +323,7 @@ int main(int argc , char** argv) {
 			}
 
 			//checks if the second client is read-ready. If it is, try to read from it.
-			int opp_player = (player_turn+1) % 1 ;
+
 			if (FD_ISSET(client_sockets[opp_player],&read_fds)){
 				sock=client_sockets[opp_player];
 				recieveClientMessage(opp_player,types,sock,&k,c_msg_recieved,chat,c_msg);
@@ -333,13 +333,11 @@ int main(int argc , char** argv) {
 			//opponent message wad fully recieved.
 			if (cmsg_fully_recieved[opp_player]){
 				i=msgs_index[player_turn] % MSG_NUM;
-				msgs_index[player_turn]=i++;
+				msgs_index[player_turn]=i+1;
 
 				if (types[opp_player]==CHAT_MSG){
-					chat.sender_num=opp_player;
-
-					msgs_to_send[player_turn][i]=CHAT_MSG;
-					memcpy(msgs_to_send+player_turn+i+1,chat[opp_player],sizeof(chat_msg));
+					msgs_to_send[player_turn][i].data.chat=chat[player_turn];
+					msgs_to_send[player_turn][i].type=CHAT_MSG;
 				}
 				else {
 					if (c_msg[opp_player].heap_name=='Q'){
@@ -348,12 +346,14 @@ int main(int argc , char** argv) {
 						client_sockets[player_turn]=-1;
 						clients_connected--;
 						s_msg[player_turn].winner=CLIENT_WIN; // no need to update rest of the message. only matters is that he won.
-						msgs_to_send[player_turn][i]=s_msg[player_turn];
-						types_of_msgs[player_turn][i]=SERVER_MSG;
+						i = opp_player==0 ? first_not_sent_1 : first_not_sent_2;
+						msgs_to_send[player_turn][i].type=SERVER_MSG;
+						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
 						player_turn = (++player_turn) % 1;
 						continue; //no need to add a message to the opponent's queue. He quit the game.
 					}
 				}
+
 
 			}
 
@@ -369,9 +369,9 @@ int main(int argc , char** argv) {
 				if (types[player_turn]==CHAT_MSG){
 					chat.sender_num=player_turn;
 					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i++;
-					msgs_to_send[opp_player][i]=chat;
-					types_of_msgs[opp_player][i]=CHAT_MSG;
+					msgs_index[opp_player]=i+1;
+					msgs_to_send[opp_player][i].data.chat=chat;
+					msgs_to_send[opp_player][i].type=CHAT_MSG;
 					continue;
 				}
 				//if we got here, we have a client move waiting.
@@ -384,9 +384,9 @@ int main(int argc , char** argv) {
 					clients_connected--;
 					s_msg[opp_player].winner=CLIENT_WIN;
 					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i++;
-					msgs_to_send[opp_player][i]=s_msg[opp_player];
-					types_of_msgs[opp_player][i]=SERVER_MSG;
+					msgs_index[opp_player]=i+1;
+					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
+					msgs_to_send[opp_player][i].type=SERVER_MSG;
 				}
 				else {
 					// Do move.
@@ -420,32 +420,27 @@ int main(int argc , char** argv) {
 
 					//adding am_msg to the current player's msgs queue.
 					i=i=msgs_index[player_turn] % MSG_NUM;
-					msgs_index[player_turn]=i++;
-					msgs_to_send[player_turn][i]=am_msg;
-					types_of_msgs[player_turn][i]=AM_MSG;
+					msgs_index[player_turn]=i+1;
+					msgs_to_send[player_turn][i].data.am_msg=am_msg;
+					msgs_to_send[player_turn][i].type=AM_MSG;
 
 					//adding am_msg to the next player's msgs queue.
 					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i++;
-					msgs_to_send[opp_player][i]=am_msg;
-					types_of_msgs[opp_player][i]=AM_MSG;
+					msgs_index[opp_player]=i+1;
+					msgs_to_send[opp_player][i].data.am_msg=am_msg;
+					msgs_to_send[opp_player][i].type=AM_MSG;
 
 					//adding the server msg to the next player's msgs queue.
 					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i++;
-					msgs_to_send[opp_player][i]=s_msg[opp_player];
-					types_of_msgs[opp_player][i]=SERVER_MSG;
+					msgs_index[opp_player]=i+1;
+					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
+					msgs_to_send[opp_player][i].type=SERVER_MSG;
 
 					//adding the server msg to the next player's msgs queue.
 					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i++;
-					msgs_to_send[opp_player][i]=s_msg[opp_player];
-					types_of_msgs[opp_player][i]=SERVER_MSG;
-
-
-
-
-
+					msgs_index[opp_player]=i+1;
+					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
+					msgs_to_send[opp_player][i].type=SERVER_MSG;
 
 				}
 
