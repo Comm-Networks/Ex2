@@ -37,7 +37,18 @@
 	}msg_type;
 #pragma pack(pop)
 
+#pragma pack(push,1)
+	typedef struct {
+		msg_type type;
+		union {
+			init_server_msg init_msg;
+			server_msg s_msg;
+			chat_msg chat;
+			client_msg c_msg;
+			after_move_msg am_msg;
 
+		}data;
+	}msg;
 
 #pragma pack(push,1)
 	typedef struct{
@@ -45,7 +56,7 @@
 	}init_server_msg;
 #pragma pack(pop)
 
-//message from the server - start of a turn
+//message from the server - heaps' size info.
 #pragma pack(push, 1)
 	typedef struct {
 		char  winner; /* w-this client won/ l- this client lost/ n- no winner yet */
@@ -61,6 +72,7 @@
 #pragma pack(push,1)
 	typedef struct {
 		char  msg[255]; /* sending the msg from one client to another*/
+		short sender_num;
 	}chat_msg;
 
 #pragma pack(push, 1)
