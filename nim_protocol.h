@@ -48,10 +48,10 @@
 //message from the server - start of a turn
 #pragma pack(push, 1)
 	typedef struct {
+		char  winner; /* w-this client won/ l- this client lost/ n- no winner yet */
 		short n_a; /* heap A size */
 		short n_b; /* heap B size */
 		short n_c; /* heap C size */
-		char  winner; /* w-this client won/ l- this client lost/ n- no winner yet */
 		short player_turn; /* turn of player num 1 or 2*/
 		short cubes_removed; /* num of cubes removed by opponent*/
 		char  heap_name; /*name of heap , the opponent removed cubes from*/
@@ -67,7 +67,6 @@
 	typedef struct  {
 		short num_cubes_to_remove; /* 0 if we want only to send message */
 		char  heap_name; /* the heap we remove cubes from*/
-		char msg[255]; /* potential chat message from one client to another*/
 	}client_msg;
 #pragma pack(pop)
 
