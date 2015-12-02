@@ -14,7 +14,7 @@ int empty_piles(int n_a,int n_b,int n_c) {
  * recieving a client message and saving it in the right message struct(chat or c_msg)
  */
 void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,int* off,
-		msg c_msg_recieved[NUM_CLIENTS],chat_msg chat[NUM_CLIENTS],client_msg c_msg[NUM_CLIENTS]){
+		msg c_msg_recieved[NUM_CLIENTS],chat_msg chat[NUM_CLIENTS],client_move_msg c_msg[NUM_CLIENTS]){
 	int size;
 	int ret_val = recv(sock,&type[player_turn],sizeof(msg_type),0);
 	if (type[player_turn]==CHAT_MSG){
@@ -40,7 +40,7 @@ void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,in
 	}
 	else { //a client move message
 
-		size = sizeof(client_msg)-*off;
+		size = sizeof(client_move_msg)-*off;
 		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.c_msg),size,0);
 		if (ret_val ==-1){
 			//implement...
@@ -77,7 +77,7 @@ int main(int argc , char** argv) {
 	fd_set read_fds;
 	fd_set write_fds;
 
-	client_msg c_msg[NUM_CLIENTS];
+	client_move_msg c_msg[NUM_CLIENTS];
 	server_msg s_msg[NUM_CLIENTS];
 	chat_msg chat[NUM_CLIENTS];
 	after_move_msg am_msg;

@@ -24,6 +24,7 @@
 #define ILLEGAL_MOVE 'b'
 #define NUM_CLIENTS 2
 #define MSG_NUM 100
+#define MSG_MAX_SIZE 255
 
 
 
@@ -32,7 +33,7 @@
 		INIT_MSG,
 		SERVER_MSG,
 		CHAT_MSG,
-		CLIENT_MSG,
+		CLIENT_MOVE_MSG,
 		AM_MSG,
 		REJECTED_MSG
 	}msg_type;
@@ -61,14 +62,26 @@
 #pragma pack(push,1)
 	typedef struct {
 		short sender_num;
-		char  msg[255]; /* sending the msg from one client to another*/
-	}chat_msg;
+		char  msg[MSG_MAX_SIZE]; /* sending the msg from one client to another*/
+	} chat_msg;
+#pragma pack(pop)
 
 #pragma pack(push, 1)
 	typedef struct  {
 		short num_cubes_to_remove; /* 0 if we want only to send message */
 		char  heap_name; /* the heap we remove cubes from*/
-	}client_msg;
+	} client_move_msg;
+#pragma pack(pop)
+
+#pragma pack(push,1)
+	typedef union {
+		chat_msg chat;
+		client_move_msg client_move;
+	} client_data_union;
+	typedef struct {
+		msg_type type;
+		client_data_union data;
+	} client_msg;
 #pragma pack(pop)
 
 #pragma pack(push, 1)
@@ -86,7 +99,7 @@
 		init_server_msg init_msg;
 		server_msg s_msg;
 		chat_msg chat;
-		client_msg c_msg;
+		client_move_msg c_msg;
 		after_move_msg am_msg;
 	} data_union;
 	typedef struct {

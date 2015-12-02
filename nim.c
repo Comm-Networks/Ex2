@@ -42,9 +42,15 @@ int main(int argc , char** argv){
 	int size;
 	char pile;
 	short number;
-	client_msg c_msg;
-	server_msg s_msg;
-	after_move_msg am_msg;
+
+	client_msg msg_queue[MSG_NUM];
+	short queue_head = 0;
+	short queue_sent = -1;
+	short queue_size = 0;
+
+	client_msg current_msg;
+	int current_msg_offset;
+
 	if (argc==3) {
 		hostname=argv[1];
 		port=argv[2];
@@ -144,7 +150,7 @@ int main(int argc , char** argv){
 		} else if (ret_val == 0) {
 			// No data from server.
 			if (client_num == 2) {
-				// Nothing to do.
+				// Nothing to do because client 1 is starting.
 				// TODO: Maybe sleep?
 				continue;
 			}
@@ -210,33 +216,37 @@ int main(int argc , char** argv){
 
 			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
 			if (pile == QUIT_CHAR) {
-				c_msg.heap_name=pile;
-				c_msg.num_cubes_to_remove=0;
-				//letting the server know we close the socket
-				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
-					fprintf(stderr, "Client:failed to write to server\n");
-					break;
-				}
-				// Shutting down connection.
-				shutdown(sockfd, SHUT_WR);
-				char buf;
-				int shutdown_res = recv(sockfd, &buf, 1, 0);
-		        if (shutdown_res < 0) {
-					fprintf(stderr, "Client:failed to write to server\n");
-		            return EXIT_FAILURE;
-		        }
-		        else if (!shutdown_res) {
-		        	close(sockfd);
-		        	return EXIT_SUCCESS;
-		        }
-		        else {
-		        	// Will not reach as the server will not send anything at this point.
-		        	break;
-		        }
+				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = 0;
+				queue_head++;
+//				//letting the server know we close the socket
+//				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
+//					fprintf(stderr, "Client:failed to write to server\n");
+//					break;
+//				}
+//				// Shutting down connection.
+//				shutdown(sockfd, SHUT_WR);
+//				char buf;
+//				int shutdown_res = recv(sockfd, &buf, 1, 0);
+//		        if (shutdown_res < 0) {
+//					fprintf(stderr, "Client:failed to write to server\n");
+//		            return EXIT_FAILURE;
+//		        }
+//		        else if (!shutdown_res) {
+//		        	close(sockfd);
+//		        	return EXIT_SUCCESS;
+//		        }
+//		        else {
+//		        	// Will not reach as the server will not send anything at this point.
+//		        	break;
+//		        }
 			} else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
-				char msg[256];
-				scanf("SG %s\n", &msg);
+				scanf("SG %s\n", &msg_queue[queue_head].data.chat.msg);
+				msg_queue[queue_head].type = CHAT_MSG;
+				msg_queue[queue_head].data.chat.sender_num = client_num;
+				queue_head++;
 
 				// Sending message to server.
 				// TODO
@@ -246,8 +256,10 @@ int main(int argc , char** argv){
 				scanf(" %hd", &number);
 
 				//sending the move to the server
-				c_msg.heap_name=pile;
-				c_msg.num_cubes_to_remove=number;
+				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = number;
+				queue_head++;
 				size = sizeof(c_msg);
 				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
 					fprintf(stderr, "Client:failed to write to server\n");
@@ -261,6 +273,44 @@ int main(int argc , char** argv){
 				}
 				char * msg = am_msg.legal == ILLEGAL_MOVE ? "Illegal move\n" : "Move accepted\n";
 				printf("%s",msg);
+			}
+
+			if (queue_sent < queue_head) {
+				// Still have msgs to send.
+				if (current_msg_offset == -1) {
+					// No partially sent message - getting next one from the queue.
+					current_msg = msg_queue[queue_sent + 1];
+					current_msg_offset = 0;
+				}
+
+				// Trying to send.
+				size = sizeof(current_msg) - current_msg_offset;
+				// Checking if server is ready to recv.
+				ret_val = select(sockfd + 1, NULL, &sock_set, NULL, (0, 0));
+				if (ret_val == -1) {
+					// Error.
+					// TODO: Handle.
+
+				} else if (ret_val == 0) {
+					// Can't send data to server.
+					// TODO: Handle.
+
+				} else if (ret_val == 1) {
+					// Sending data to server.
+					ret_val = send(sockfd, &current_msg + current_msg_offset, size);
+					if (ret_val == -1) {
+						// Error.
+						// TODO: Handle.
+					} else if (ret_val < size) {
+						// Message partially sent. Updating offset of current message.
+						current_msg_offset += ret_val;
+					} else {
+						// Message fully sent. Updating queue.
+						current_msg = NULL;
+						current_msg_offset = -1;
+						queue_sent++;
+					}
+				}
 			}
 		}
 	}
