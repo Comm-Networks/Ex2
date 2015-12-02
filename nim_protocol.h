@@ -74,6 +74,9 @@
 #pragma pack(push, 1)
 	typedef struct  {
 		char legal ; // g - good b- illegal
+		short n_a;
+		short n_b;
+		short n_c;
 	}after_move_msg;
 #pragma pack(pop)
 

@@ -1,6 +1,8 @@
-#include <stdlib.h>
 #include "nim_protocol.h"
 
+
+int msg_fully_sent[NUM_CLIENTS];
+int cmsg_fully_recieved[NUM_CLIENTS];
 
 
 //check if all piles are empty
@@ -8,15 +10,17 @@ int empty_piles(int n_a,int n_b,int n_c) {
 	return (n_a == 0) && (n_b == 0) && (n_c == 0);
 }
 
-
+/*
+ * recieving a client message and saving it in the right message struct(chat or c_msg)
+ */
 void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,int* off,
 		msg c_msg_recieved[NUM_CLIENTS],chat_msg chat[NUM_CLIENTS],client_msg c_msg[NUM_CLIENTS]){
 	int size;
-	int ret_val = recv(sock,&type[player_turn],sizeof(type));
+	int ret_val = recv(sock,&type[player_turn],sizeof(msg_type),0);
 	if (type[player_turn]==CHAT_MSG){
-		size =sizeof(c_msg_recieved[player_turn])-*off;
+		size =sizeof(chat_msg)-*off;
 		//select again or not?
-		ret_val = recv(sock,c_msg_recieved[player_turn],size);
+		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.chat),size,0);
 		if (ret_val ==-1){
 			//implement
 		}
@@ -37,7 +41,7 @@ void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,in
 	else { //a client move message
 
 		size = sizeof(client_msg)-*off;
-		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.c_msg),size);
+		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.c_msg),size,0);
 		if (ret_val ==-1){
 			//implement...
 		}
@@ -56,8 +60,6 @@ void recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,in
 	}
 }
 
-int msg_fully_sent[NUM_CLIENTS];
-int cmsg_fully_recieved[NUM_CLIENTS];
 
 
 
@@ -70,7 +72,7 @@ int main(int argc , char** argv) {
 	int new_sock,sock;
 	int max_fd;
 	int client_sockets[NUM_CLIENTS+1]; //needs another socket for rejected client
-
+	double timer[NUM_CLIENTS];
 
 	fd_set read_fds;
 	fd_set write_fds;
@@ -155,9 +157,6 @@ int main(int argc , char** argv) {
 	}
 
 
-
-
-	struct timeval time;
 	int ret_val=0;
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
@@ -176,9 +175,11 @@ int main(int argc , char** argv) {
 
 
 
-
+	timer[0] = (double) clock() / CLOCKS_PER_SEC;
 	// Main loop.
 	for (;;) {
+
+
 
 		FD_ZERO(&read_fds);
 		FD_ZERO(&write_fds);
@@ -233,8 +234,8 @@ int main(int argc , char** argv) {
 				if (clients_connected>2){
 					temp_type=REJECTED_MSG;
 					size = sizeof(temp_type);
-					if (send(new_sock,&temp_type,size)==-1){
-						//need to implement
+					if (send(new_sock,&temp_type,size,0)==-1){
+						//TODO:need to implement
 					}
 					close(new_sock);
 					client_sockets[clients_connected--]=-1;
@@ -244,19 +245,15 @@ int main(int argc , char** argv) {
 		}
 
 		//its an IO operation. all sockets are connected.
-		else {
-			int opp_player = (player_turn+1) % 1 ;
-			//if player's message was not fully recieved, we won't send him a new server message for now
-			if (cmsg_fully_recieved[player_turn]){
+		else  if (clients_connected>0){
+			timer[player_turn] = -1*timer[player_turn] +(double) clock()/ CLOCKS_PER_SEC ;
 
-				if (!init_msg_sent[player_turn]){
-					//sending the first message we have't sent yet.
-					i=msgs_index[player_turn] % MSG_NUM;
-					msgs_index[player_turn]=i+1;
-					temp_type=SERVER_MSG;
-					msgs_to_send[player_turn][i].type=temp_type;
-					msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
-				}
+			if (timer[player_turn]>=60){
+				close(client_sockets[player_turn]);
+			}
+			int opp_player = (player_turn+1) % 1 ;
+			//if player's message was not fully recieved, we won't send him a new message until we recieve full message
+			if (cmsg_fully_recieved[player_turn]){
 
 				sock=client_sockets[player_turn];
 
@@ -272,7 +269,7 @@ int main(int argc , char** argv) {
 					//first byte sent is the type and it will be sent for sure(at least one byte is sent).
 					ret_val = send(sock, &msgs_to_send[player_turn][i], size);
 					if (ret_val ==-1){
-						//implement
+						//TODO implement
 					}
 					//part of msg was sent. update the msg in the array to the part that wasn't sent.
 					else if (ret_val<size ) {
@@ -290,16 +287,24 @@ int main(int argc , char** argv) {
 						msg_fully_sent[player_turn]=1;
 						if (msgs_to_send[player_turn][i].type==AM_MSG){
 							(++player_turn)%=1;
+							opp_player = (player_turn+1) % 1;
 							continue;
 						}
 						else if (msgs_to_send[player_turn][i].type==INIT_MSG){
 							init_msg_sent[player_turn]=1;
 							continue;
+						}
+						else if (msgs_to_send[player_turn][i].type == SERVER_MSG &&
+								msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
+							close(client_sockets[player_turn]);
+							clients_connected--;
+							client_sockets[player_turn]=-1;
+							(++player_turn)%=1;
+							continue;
 
 						}
 					}
 				}
-
 			}
 
 
@@ -313,6 +318,7 @@ int main(int argc , char** argv) {
 			if (msg_fully_sent[player_turn]){
 				if (FD_ISSET(sock,&read_fds)){
 					recieveClientMessage(player_turn,types,sock,&j,c_msg_recieved,chat,c_msg);
+					timer[player_turn]=(double) clock() / CLOCKS_PER_SEC;
 				}
 			}
 
@@ -327,7 +333,7 @@ int main(int argc , char** argv) {
 			if (FD_ISSET(client_sockets[opp_player],&read_fds)){
 				sock=client_sockets[opp_player];
 				recieveClientMessage(opp_player,types,sock,&k,c_msg_recieved,chat,c_msg);
-
+				timer[opp_player]= (double) clock / CLOCKS_PER_SEC;
 			}
 
 			//opponent message wad fully recieved.
@@ -392,6 +398,7 @@ int main(int argc , char** argv) {
 					// Do move.
 					am_msg.legal = LEGAL_MOVE;
 
+
 					if (num_cubes > 0 && (heap_name == PILE_A_CHAR) && (num_cubes <= n_a)) {
 						n_a -= num_cubes;
 
@@ -406,35 +413,49 @@ int main(int argc , char** argv) {
 						// Illegal move (trying to get more cubes than available).
 						am_msg.legal = ILLEGAL_MOVE;
 					}
-					s_msg[opp_player].n_a=n_a;
-					s_msg[opp_player].n_b=n_b;
-					s_msg[opp_player].n_c=n_c;
-					s_msg[opp_player].cubes_removed=num_cubes;
-					s_msg[opp_player].heap_name=heap_name;
-					// Checking if client won.
-					if (empty_piles(n_a,n_b,n_c)) {
-						// "player_turn" client won.
-						s_msg[opp_player].winner = CLIENT_LOST; // Letting the other client know he lost.
+
+					//informing the player of the updated heaps sizes only if it is a legal move.
+					if (am_msg.legal == ILLEGAL_MOVE){
+						am_msg.n_a=-1;
+						am_msg.n_b=-1;
+						am_msg.n_c=-1;
 					}
-					s_msg[opp_player].player_turn=opp_player;
+					else {
+						am_msg.n_a=n_a;
+						am_msg.n_b=n_b;
+						am_msg.n_c=n_c;
+					}
 
 					//adding am_msg to the current player's msgs queue.
-					i=i=msgs_index[player_turn] % MSG_NUM;
+					i=msgs_index[player_turn] % MSG_NUM;
 					msgs_index[player_turn]=i+1;
 					msgs_to_send[player_turn][i].data.am_msg=am_msg;
 					msgs_to_send[player_turn][i].type=AM_MSG;
 
-					//adding am_msg to the next player's msgs queue.
-					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i+1;
-					msgs_to_send[opp_player][i].data.am_msg=am_msg;
-					msgs_to_send[opp_player][i].type=AM_MSG;
+					s_msg[opp_player].n_a=n_a;
+					s_msg[opp_player].n_b=n_b;
+					s_msg[opp_player].n_c=n_c;
+					s_msg[opp_player].cubes_removed= (am_msg.legal == ILLEGAL_MOVE)? 0 : num_cubes;
+					s_msg[opp_player].heap_name=heap_name;
+					s_msg[opp_player].player_turn=opp_player;
 
-					//adding the server msg to the next player's msgs queue.
-					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i+1;
-					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
-					msgs_to_send[opp_player][i].type=SERVER_MSG;
+					// Checking if client won.
+					if (empty_piles(n_a,n_b,n_c)) {
+						// "player_turn" client won.
+						s_msg[opp_player].winner = CLIENT_LOST;
+
+						memcpy(&s_msg[player_turn],&s_msg[opp_player],sizeof(s_msg));
+						s_msg[player_turn].winner= CLIENT_WIN;
+
+						//adding the server msg to the current player's turn. letting him know he won.
+						i=msgs_index[player_turn] % MSG_NUM;
+						msgs_index[player_turn]=i+1;
+						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
+						msgs_to_send[player_turn][i].type=SERVER_MSG;
+					}
+					else {
+						s_msg[opp_player].winner=NO_WIN;
+					}
 
 					//adding the server msg to the next player's msgs queue.
 					i=msgs_index[opp_player] % MSG_NUM;
@@ -447,14 +468,15 @@ int main(int argc , char** argv) {
 			}
 
 		}
-
-
-
-
-
+		else {
+			break;
+		}
 	}
-
-
+	for (i=0; i<NUM_CLIENTS;i++){
+		if (client_sockets[i]>0){
+			close(client_sockets[i]);
+		}
+	}
 	close(listening_sock);
 	return (ret_val == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
