@@ -73,6 +73,7 @@ int main(int argc , char** argv) {
 	int max_fd;
 	int client_sockets[NUM_CLIENTS+1]; //needs another socket for rejected client
 	double timer[NUM_CLIENTS];
+	clock_t clk;
 
 	fd_set read_fds;
 	fd_set write_fds;
@@ -166,7 +167,6 @@ int main(int argc , char** argv) {
 	msg c_msg_recieved[NUM_CLIENTS];
 	msg_type types[NUM_CLIENTS];
 	msg_type temp_type;
-	void* buffer;
 	int init_msg_sent[NUM_CLIENTS]={0};
 
 	memset(msgs_index,0,NUM_CLIENTS);
@@ -208,7 +208,7 @@ int main(int argc , char** argv) {
 			break;
 		}
 		//listening socket is read-ready - can accept
-		if (FD_ISSSET(listening_sock,&read_fds)){
+		if (FD_ISSET(listening_sock,&read_fds)){
 			size = sizeof(struct sockaddr_in);
 			new_sock = accept(listening_sock, (struct sockaddr*)&client_adrr, &size);
 			if (new_sock<0){
@@ -267,14 +267,16 @@ int main(int argc , char** argv) {
 					i= player_turn==0 ? first_not_sent_1 : first_not_sent_2;
 					size=sizeof(msgs_to_send[player_turn][i]);
 					//first byte sent is the type and it will be sent for sure(at least one byte is sent).
-					ret_val = send(sock, &msgs_to_send[player_turn][i], size);
+					ret_val = send(sock, &msgs_to_send[player_turn][i], size,0);
 					if (ret_val ==-1){
 						//TODO implement
 					}
 					//part of msg was sent. update the msg in the array to the part that wasn't sent.
 					else if (ret_val<size ) {
-						offset = sizeof(msgs_to_send[player_turn][i]) -size ;
-						msgs_to_send[player_turn][i]+=offset;
+						offset = sizeof(msgs_to_send[player_turn][i]) -ret_val ;
+						char buffer[size];
+						memcpy(buffer,&msgs_to_send[player_turn][i],size);
+						memcpy(&msgs_to_send[player_turn][i],(void*)buffer+offset,ret_val);
 						msg_fully_sent[player_turn]=0;
 					}
 					else {
@@ -286,8 +288,7 @@ int main(int argc , char** argv) {
 						}
 						msg_fully_sent[player_turn]=1;
 						if (msgs_to_send[player_turn][i].type==AM_MSG){
-							(++player_turn)%=1;
-							opp_player = (player_turn+1) % 1;
+							player_turn= (player_turn+1) % 1;
 							continue;
 						}
 						else if (msgs_to_send[player_turn][i].type==INIT_MSG){
@@ -299,7 +300,7 @@ int main(int argc , char** argv) {
 							close(client_sockets[player_turn]);
 							clients_connected--;
 							client_sockets[player_turn]=-1;
-							(++player_turn)%=1;
+							player_turn= (player_turn+1) % 1;
 							continue;
 
 						}
@@ -333,7 +334,8 @@ int main(int argc , char** argv) {
 			if (FD_ISSET(client_sockets[opp_player],&read_fds)){
 				sock=client_sockets[opp_player];
 				recieveClientMessage(opp_player,types,sock,&k,c_msg_recieved,chat,c_msg);
-				timer[opp_player]= (double) clock / CLOCKS_PER_SEC;
+				clk=clock();
+				timer[opp_player]= (double) clk / CLOCKS_PER_SEC;
 			}
 
 			//opponent message wad fully recieved.
@@ -355,7 +357,7 @@ int main(int argc , char** argv) {
 						i = opp_player==0 ? first_not_sent_1 : first_not_sent_2;
 						msgs_to_send[player_turn][i].type=SERVER_MSG;
 						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
-						player_turn = (++player_turn) % 1;
+						player_turn = (player_turn+1) % 1;
 						continue; //no need to add a message to the opponent's queue. He quit the game.
 					}
 				}
@@ -373,10 +375,10 @@ int main(int argc , char** argv) {
 
 
 				if (types[player_turn]==CHAT_MSG){
-					chat.sender_num=player_turn;
+					chat[player_turn].sender_num=player_turn;
 					i=msgs_index[opp_player] % MSG_NUM;
 					msgs_index[opp_player]=i+1;
-					msgs_to_send[opp_player][i].data.chat=chat;
+					msgs_to_send[opp_player][i].data.chat=chat[player_turn];
 					msgs_to_send[opp_player][i].type=CHAT_MSG;
 					continue;
 				}
