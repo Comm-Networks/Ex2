@@ -3,34 +3,6 @@
 
 #define INPUT_SIZE 2
 
-int recvall(int sockfd,void* buff,int *len){
-	int total = 0; /* how many bytes we've read */
-	int bytesleft = *len; /* how many we have left to read */
-	int n;
-	while(total < *len) {
-	   n = recv(sockfd, buff+total, bytesleft, 0);
-	   if (n == -1) { break; }
-	   total += n;
-	   bytesleft -= n;
-	}
-	*len = total; /* return number actually read here */
-	return n == -1 ? -1:0; /*-1 on failure, 0 on success */
-}
-
-int sendall(int sockfd,void* buff,int *len){
-	int total = 0; /* how many bytes we've sent */
-	int bytesleft = *len; /* how many we have left to send */
-	int n;
-	while(total < *len) {
-	   n = send(sockfd, buff+total, bytesleft, 0);
-	   if (n == -1) { break; }
-	   total += n;
-	   bytesleft -= n;
-	}
-	*len = total; /* return number actually sent here */
-	return n == -1 ? -1:0; /*-1 on failure, 0 on success */
-}
-
 
 
 int main(int argc , char** argv){
@@ -46,11 +18,11 @@ int main(int argc , char** argv){
 	short end_game = 0;
 
 
-	msg msg_queue[MSG_NUM];
+	client_msg msg_queue[MSG_NUM];
 	short queue_head = 0;
 	short queue_sent = -1;
 
-	client_msg current_msg = NULL;
+	client_msg current_msg;
 	int current_msg_offset = -1;
 
 	msg current_s_msg;
@@ -117,29 +89,29 @@ int main(int argc , char** argv){
 	int ret_val=0;
 
 	// Getting init msg.
-	msg m;
-	size = sizeof(m);
-	if ((ret_val=recv(sockfd,(void *)m, size,0))<size){
+	size = sizeof(current_s_msg);
+	while ((ret_val = recv(sockfd, &current_s_msg + current_s_msg_offset, size, 0)) < size){
 		if (ret_val==-1){
 			fprintf(stderr, "Client:failed to read from server\n");
 			exit(1);
-		}
-		else{
-			/*you need to handle part of message. Init message is bigger than one byte.
-				you got at least one byte for the type. maybe not more.
-			 */
+		} else {
+			// Message received partially.
+			size -= ret_val;
+			current_s_msg_offset += ret_val;
 		}
 	}
 
-	if (m.type == REJECTED_MSG) {
+	current_s_msg_offset = 0; // Resetting for next use.
+
+	if (current_s_msg.type == REJECTED_MSG) {
 		// Server notified the client that it was rejected.
 		printf("Client rejected\n");
 		// TODO: Do we need to close anything here? //why not?
 		exit(1);
 
-	} else if (m.type == INIT_MSG) {
+	} else if (current_s_msg.type == INIT_MSG) {
 		// Fetch client num and display messages.
-		client_num = m.data.init_msg.client_num;
+		client_num = current_s_msg.data.init_msg.client_num;
 		my_turn = (client_num == 1);
 		printf("You are client %hd\n", client_num);
 		if (client_num == 1) {
@@ -170,7 +142,7 @@ int main(int argc , char** argv){
 		} else if (ret_val == 1) {
 			// Recv data from server.
 			size = sizeof(msg) - current_s_msg_offset;
-			ret_val = recv(sockfd, &server_msg + current_s_msg_offset, size, 0);
+			ret_val = recv(sockfd, &current_s_msg + current_s_msg_offset, size, 0);
 			if (ret_val == -1) {
 				// Error.
 				// TODO: Handle.
@@ -181,35 +153,34 @@ int main(int argc , char** argv){
 			} else {
 				// Message fully received. Resetting offset and processing.
 				current_s_msg_offset = 0;
+				data_union* data = &current_s_msg.data;
 
 				switch (current_s_msg.type) {
 				case SERVER_MSG:
-					server_msg s_msg = current_s_msg.data.s_msg;
-					if (s_msg.winner != NO_WIN) {
-						char * result = s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
+					if (data->s_msg.winner != NO_WIN) {
+						char * result = data->s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
 						printf("You %s!\n", result);
 						end_game = 1;
 
 					} else {
 						// Game continues.
-						if (s_msg.player_turn != client_num) {
-							printf("Client %hd removed %hd cubes from heap %c\n", s_msg.player_turn, s_msg.cubes_removed, s_msg.heap_name);
+						if (data->s_msg.player_turn != client_num) {
+							printf("Client %hd removed %hd cubes from heap %c\n", data->s_msg.player_turn, data->s_msg.cubes_removed, data->s_msg.heap_name);
 						}
-						printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", s_msg.n_a, s_msg.n_b, s_msg.n_c);
+						printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
 					}
 
 					break;
 
 				case AM_MSG:
-					after_move_msg am_msg = current_s_msg.data.am_msg;
 					if (my_turn) {
-						char * am_print = am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
+						char * am_print = data->am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
 						printf("%s\n",am_print);
 
 					} else {
-						if (am_msg.legal == ILLEGAL_MOVE) {
+						if (data->am_msg.legal == ILLEGAL_MOVE) {
 							// Notify that other client made illegal move.
-							printf("Client %hd made an illegal move\n", (NUM_CLIENTS - client_num + 1));
+							printf("Client %d made an illegal move\n", (NUM_CLIENTS - client_num + 1));
 
 							// Now it's my turn.
 							my_turn = 1;
@@ -219,7 +190,10 @@ int main(int argc , char** argv){
 					break;
 
 				case CHAT_MSG:
-					printf("Client %hd: %s\n", m.data.chat.sender_num, m.data.chat.msg);
+					printf("Client %hd: %s\n", data->chat.sender_num, data->chat.msg);
+					break;
+
+				default:
 					break;
 				}
 			}
@@ -254,8 +228,8 @@ int main(int argc , char** argv){
 			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
 			if (pile == QUIT_CHAR) {
 				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
-				msg_queue[queue_head].data.c_msg.heap_name = pile;
-				msg_queue[queue_head].data.c_msg.num_cubes_to_remove = 0;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = 0;
 				queue_head++;
 //				//letting the server know we close the socket
 //				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
@@ -280,9 +254,9 @@ int main(int argc , char** argv){
 //		        }
 			} else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
-
-				char msg[256];
-				scanf("MSG %s\n", &msg_queue[queue_head].data.chat.msg);
+				// M was removed here intentionally. We already read it...
+				scanf("SG");
+				fgets(msg_queue[queue_head].data.chat.msg, MSG_MAX_SIZE, stdin);
 				msg_queue[queue_head].type = CHAT_MSG;
 				msg_queue[queue_head].data.chat.sender_num = client_num;
 				queue_head++;
@@ -296,8 +270,8 @@ int main(int argc , char** argv){
 
 				//sending the move to the server
 				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
-				msg_queue[queue_head].data.c_msg.heap_name = pile;
-				msg_queue[queue_head].data.c_msg.num_cubes_to_remove = number;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = number;
 				queue_head++;
 //				size = sizeof(c_msg);
 //				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
@@ -336,7 +310,7 @@ int main(int argc , char** argv){
 
 				} else if (ret_val == 1) {
 					// Sending data to server.
-					ret_val = send(sockfd, &current_msg + current_msg_offset, size);
+					ret_val = send(sockfd, &current_msg + current_msg_offset, size, 0);
 					if (ret_val == -1) {
 						// Error.
 						// TODO: Handle.
@@ -345,7 +319,6 @@ int main(int argc , char** argv){
 						current_msg_offset += ret_val;
 					} else {
 						// Message fully sent. Updating queue.
-						current_msg = NULL;
 						current_msg_offset = -1;
 						queue_sent++;
 					}
