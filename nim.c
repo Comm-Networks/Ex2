@@ -45,7 +45,8 @@ int main(int argc , char** argv){
 
 	short end_game = 0;
 
-	client_msg msg_queue[MSG_NUM];
+
+	msg msg_queue[MSG_NUM];
 	short queue_head = 0;
 	short queue_sent = -1;
 
@@ -118,15 +119,22 @@ int main(int argc , char** argv){
 	// Getting init msg.
 	msg m;
 	size = sizeof(m);
-	if ((ret_val=recvall(sockfd,(void *)&m, &size))<0){
-		fprintf(stderr, "Client:failed to read from server\n");
-		exit(1);
+	if ((ret_val=recv(sockfd,(void *)m, size,0))<size){
+		if (ret_val==-1){
+			fprintf(stderr, "Client:failed to read from server\n");
+			exit(1);
+		}
+		else{
+			/*you need to handle part of message. Init message is bigger than one byte.
+				you got at least one byte for the type. maybe not more.
+			 */
+		}
 	}
 
 	if (m.type == REJECTED_MSG) {
 		// Server notified the client that it was rejected.
 		printf("Client rejected\n");
-		// TODO: Do we need to close anything here?
+		// TODO: Do we need to close anything here? //why not?
 		exit(1);
 
 	} else if (m.type == INIT_MSG) {
@@ -155,7 +163,7 @@ int main(int argc , char** argv){
 			// No data from server.
 			if (client_num == 2) {
 				// Nothing to do because client 1 is starting.
-				// TODO: Maybe sleep?
+				// TODO: Maybe sleep? //No need. Continue is ok.
 				continue;
 			}
 
@@ -246,8 +254,8 @@ int main(int argc , char** argv){
 			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
 			if (pile == QUIT_CHAR) {
 				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
-				msg_queue[queue_head].data.client_move.heap_name = pile;
-				msg_queue[queue_head].data.client_move.num_cubes_to_remove = 0;
+				msg_queue[queue_head].data.c_msg.heap_name = pile;
+				msg_queue[queue_head].data.c_msg.num_cubes_to_remove = 0;
 				queue_head++;
 //				//letting the server know we close the socket
 //				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
@@ -272,14 +280,12 @@ int main(int argc , char** argv){
 //		        }
 			} else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
-<<<<<<< HEAD
+
 				char msg[256];
-=======
 				scanf("MSG %s\n", &msg_queue[queue_head].data.chat.msg);
 				msg_queue[queue_head].type = CHAT_MSG;
 				msg_queue[queue_head].data.chat.sender_num = client_num;
 				queue_head++;
->>>>>>> origin/master
 
 				// Sending message to server.
 				// TODO
@@ -290,8 +296,8 @@ int main(int argc , char** argv){
 
 				//sending the move to the server
 				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
-				msg_queue[queue_head].data.client_move.heap_name = pile;
-				msg_queue[queue_head].data.client_move.num_cubes_to_remove = number;
+				msg_queue[queue_head].data.c_msg.heap_name = pile;
+				msg_queue[queue_head].data.c_msg.num_cubes_to_remove = number;
 				queue_head++;
 //				size = sizeof(c_msg);
 //				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
