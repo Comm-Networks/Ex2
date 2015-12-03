@@ -42,9 +42,19 @@ int main(int argc , char** argv){
 	int size;
 	char pile;
 	short number;
-	client_msg c_msg;
-	server_msg s_msg;
-	after_move_msg am_msg;
+
+	short end_game = 0;
+
+	client_msg msg_queue[MSG_NUM];
+	short queue_head = 0;
+	short queue_sent = -1;
+
+	client_msg current_msg = NULL;
+	int current_msg_offset = -1;
+
+	msg current_s_msg;
+	int current_s_msg_offset = 0;
+
 	if (argc==3) {
 		hostname=argv[1];
 		port=argv[2];
@@ -110,7 +120,7 @@ int main(int argc , char** argv){
 	size = sizeof(m);
 	if ((ret_val=recvall(sockfd,(void *)&m, &size))<0){
 		fprintf(stderr, "Client:failed to read from server\n");
-		break;
+		exit(1);
 	}
 
 	if (m.type == REJECTED_MSG) {
@@ -133,7 +143,7 @@ int main(int argc , char** argv){
 		// TODO: Handle.
 	}
 
-	for (;;) {
+	while (!end_game) {
 
 		// Checking if server is ready to send.
 		ret_val = select(sockfd + 1, &sock_set, NULL, NULL, (0, 0));
@@ -144,59 +154,84 @@ int main(int argc , char** argv){
 		} else if (ret_val == 0) {
 			// No data from server.
 			if (client_num == 2) {
-				// Nothing to do.
+				// Nothing to do because client 1 is starting.
 				// TODO: Maybe sleep?
 				continue;
 			}
 
 		} else if (ret_val == 1) {
 			// Recv data from server.
-			if ((ret_val=recvall(sockfd,(void *)&m, &size))<0){
-				fprintf(stderr, "Client:failed to read from server\n");
-				break;
-			}
+			size = sizeof(msg) - current_s_msg_offset;
+			ret_val = recv(sockfd, &server_msg + current_s_msg_offset, size, 0);
+			if (ret_val == -1) {
+				// Error.
+				// TODO: Handle.
+			} else if (ret_val < size) {
+				// Message partially received. Updating offset.
+				current_s_msg_offset += ret_val;
 
-			switch (m.type) {
-			case SERVER_MSG:
-				break;
+			} else {
+				// Message fully received. Resetting offset and processing.
+				current_s_msg_offset = 0;
 
-			case AM_MSG:
-				if (my_turn) {
-					char * am_msg = m.data.am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
-					printf("%s\n",am_msg);
+				switch (current_s_msg.type) {
+				case SERVER_MSG:
+					server_msg s_msg = current_s_msg.data.s_msg;
+					if (s_msg.winner != NO_WIN) {
+						char * result = s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
+						printf("You %s!\n", result);
+						end_game = 1;
 
-				} else {
-					if (m.data.am_msg.legal == ILLEGAL_MOVE) {
-						// Notify that other client made illegal move.
-						printf("Client %hd made an illegal move\n", (NUM_CLIENTS - client_num + 1));
-
-						// Now it's my turn.
-						my_turn = 1;
+					} else {
+						// Game continues.
+						if (s_msg.player_turn != client_num) {
+							printf("Client %hd removed %hd cubes from heap %c\n", s_msg.player_turn, s_msg.cubes_removed, s_msg.heap_name);
+						}
+						printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", s_msg.n_a, s_msg.n_b, s_msg.n_c);
 					}
+
+					break;
+
+				case AM_MSG:
+					after_move_msg am_msg = current_s_msg.data.am_msg;
+					if (my_turn) {
+						char * am_print = am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
+						printf("%s\n",am_print);
+
+					} else {
+						if (am_msg.legal == ILLEGAL_MOVE) {
+							// Notify that other client made illegal move.
+							printf("Client %hd made an illegal move\n", (NUM_CLIENTS - client_num + 1));
+
+							// Now it's my turn.
+							my_turn = 1;
+						}
+					}
+
+					break;
+
+				case CHAT_MSG:
+					printf("Client %hd: %s\n", m.data.chat.sender_num, m.data.chat.msg);
+					break;
 				}
-
-				break;
-
-			case CHAT_MSG:
-				printf("Client %hd: %s\n", m.data.chat.sender_num, m.data.chat.msg);
-				break;
 			}
+
 		}
 
-		//getting heap info and winner info from server
-		size = sizeof(s_msg);
-		if ((ret_val=recvall(sockfd,(void *)&s_msg, &size))<0){
-			fprintf(stderr, "Client:failed to read from server\n");
-			break;
-		}
-		printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", s_msg.n_a, s_msg.n_b, s_msg.n_c);
-
-		if (s_msg.winner != NO_WIN) {
-			char * winner = s_msg.winner == CLIENT_WIN ? "You" : "Server" ;
-			printf("%s win!\n",winner);
-			break;
-		}
-		else {
+//		//getting heap info and winner info from server
+//		size = sizeof(s_msg);
+//		if ((ret_val=recvall(sockfd,(void *)&s_msg, &size))<0){
+//			fprintf(stderr, "Client:failed to read from server\n");
+//			break;
+//		}
+//		printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", s_msg.n_a, s_msg.n_b, s_msg.n_c);
+//
+//		if (s_msg.winner != NO_WIN) {
+//			char * winner = s_msg.winner == CLIENT_WIN ? "You" : "Server" ;
+//			printf("%s win!\n",winner);
+//			break;
+//		}
+		if (1) { // TODO: Set if condition.
 			printf("Your turn:\n");
 			ret_val = select(fileno(stdin) + 1, &stdin_set, NULL, NULL, (0, 0));
 			if (ret_val == -1) {
@@ -210,33 +245,41 @@ int main(int argc , char** argv){
 
 			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
 			if (pile == QUIT_CHAR) {
-				c_msg.heap_name=pile;
-				c_msg.num_cubes_to_remove=0;
-				//letting the server know we close the socket
-				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
-					fprintf(stderr, "Client:failed to write to server\n");
-					break;
-				}
-				// Shutting down connection.
-				shutdown(sockfd, SHUT_WR);
-				char buf;
-				int shutdown_res = recv(sockfd, &buf, 1, 0);
-		        if (shutdown_res < 0) {
-					fprintf(stderr, "Client:failed to write to server\n");
-		            return EXIT_FAILURE;
-		        }
-		        else if (!shutdown_res) {
-		        	close(sockfd);
-		        	return EXIT_SUCCESS;
-		        }
-		        else {
-		        	// Will not reach as the server will not send anything at this point.
-		        	break;
-		        }
+				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = 0;
+				queue_head++;
+//				//letting the server know we close the socket
+//				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
+//					fprintf(stderr, "Client:failed to write to server\n");
+//					break;
+//				}
+//				// Shutting down connection.
+//				shutdown(sockfd, SHUT_WR);
+//				char buf;
+//				int shutdown_res = recv(sockfd, &buf, 1, 0);
+//		        if (shutdown_res < 0) {
+//					fprintf(stderr, "Client:failed to write to server\n");
+//		            return EXIT_FAILURE;
+//		        }
+//		        else if (!shutdown_res) {
+//		        	close(sockfd);
+//		        	return EXIT_SUCCESS;
+//		        }
+//		        else {
+//		        	// Will not reach as the server will not send anything at this point.
+//		        	break;
+//		        }
 			} else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
+<<<<<<< HEAD
 				char msg[256];
-				scanf("MSG %s\n", &msg);
+=======
+				scanf("MSG %s\n", &msg_queue[queue_head].data.chat.msg);
+				msg_queue[queue_head].type = CHAT_MSG;
+				msg_queue[queue_head].data.chat.sender_num = client_num;
+				queue_head++;
+>>>>>>> origin/master
 
 				// Sending message to server.
 				// TODO
@@ -246,21 +289,61 @@ int main(int argc , char** argv){
 				scanf(" %hd", &number);
 
 				//sending the move to the server
-				c_msg.heap_name=pile;
-				c_msg.num_cubes_to_remove=number;
-				size = sizeof(c_msg);
-				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
-					fprintf(stderr, "Client:failed to write to server\n");
-					break;
+				msg_queue[queue_head].type = CLIENT_MOVE_MSG;
+				msg_queue[queue_head].data.client_move.heap_name = pile;
+				msg_queue[queue_head].data.client_move.num_cubes_to_remove = number;
+				queue_head++;
+//				size = sizeof(c_msg);
+//				if ((ret_val=sendall(sockfd,(void *)&c_msg,&size))<0){
+//					fprintf(stderr, "Client:failed to write to server\n");
+//					break;
+//				}
+//				//receiving from server a message if that was a legal move or not
+//				size = sizeof(am_msg);
+//				if ((ret_val=recvall(sockfd,(void *)&am_msg,&size)<0)){
+//					fprintf(stderr, "Client:failed to read from server\n");
+//					break;
+//				}
+//				char * msg = am_msg.legal == ILLEGAL_MOVE ? "Illegal move\n" : "Move accepted\n";
+//				printf("%s",msg);
+			}
+
+			if (queue_sent < queue_head) {
+				// Still have msgs to send.
+				if (current_msg_offset == -1) {
+					// No partially sent message - getting next one from the queue.
+					current_msg = msg_queue[queue_sent + 1];
+					current_msg_offset = 0;
 				}
-				//receiving from server a message if that was a legal move or not
-				size = sizeof(am_msg);
-				if ((ret_val=recvall(sockfd,(void *)&am_msg,&size)<0)){
-					fprintf(stderr, "Client:failed to read from server\n");
-					break;
+
+				// Trying to send.
+				size = sizeof(current_msg) - current_msg_offset;
+				// Checking if server is ready to recv.
+				ret_val = select(sockfd + 1, NULL, &sock_set, NULL, (0, 0));
+				if (ret_val == -1) {
+					// Error.
+					// TODO: Handle.
+
+				} else if (ret_val == 0) {
+					// Can't send data to server.
+					// TODO: Handle.
+
+				} else if (ret_val == 1) {
+					// Sending data to server.
+					ret_val = send(sockfd, &current_msg + current_msg_offset, size);
+					if (ret_val == -1) {
+						// Error.
+						// TODO: Handle.
+					} else if (ret_val < size) {
+						// Message partially sent. Updating offset of current message.
+						current_msg_offset += ret_val;
+					} else {
+						// Message fully sent. Updating queue.
+						current_msg = NULL;
+						current_msg_offset = -1;
+						queue_sent++;
+					}
 				}
-				char * msg = am_msg.legal == ILLEGAL_MOVE ? "Illegal move\n" : "Move accepted\n";
-				printf("%s",msg);
 			}
 		}
 	}
