@@ -165,25 +165,29 @@ int main(int argc , char** argv){
 					} else {
 						// Game continues.
 						if (data->s_msg.player_turn != client_num) {
-							printf("Client %hd removed %hd cubes from heap %c\n", data->s_msg.player_turn, data->s_msg.cubes_removed, data->s_msg.heap_name);
+							// Other's turn.
+							if (data->s_msg.legal == LEGAL_MOVE) {
+								printf("Client %hd removed %hd cubes from heap %c\n", data->s_msg.player_turn, data->s_msg.cubes_removed, data->s_msg.heap_name);
+								printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
+							} else {
+								printf("Client %hd made an illegal move\n", data->s_msg.player_turn);
+							}
+						} else {
+							// Your turn.
+							printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
 						}
-						printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
 					}
 
 					break;
 
 				case AM_MSG:
-					if (my_turn) {
+					if (1) {
 						char * am_print = data->am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
 						printf("%s\n",am_print);
 
-					} else {
-						if (data->am_msg.legal == ILLEGAL_MOVE) {
-							// Notify that other client made illegal move.
-							printf("Client %d made an illegal move\n", (NUM_CLIENTS - client_num + 1));
-
-							// Now it's my turn.
-							my_turn = 1;
+						if (data->am_msg.legal == LEGAL_MOVE) {
+							// Print updated piles list after legal move.
+							printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->am_msg.n_a, data->am_msg.n_b, data->am_msg.n_c);
 						}
 					}
 

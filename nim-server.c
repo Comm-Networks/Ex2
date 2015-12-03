@@ -434,6 +434,7 @@ int main(int argc , char** argv) {
 					msgs_to_send[player_turn][i].data.am_msg=am_msg;
 					msgs_to_send[player_turn][i].type=AM_MSG;
 
+					s_msg[opp_player].legal = am_msg.legal; // OMER: Opponent must know it's a legal move as well. He prints a message.
 					s_msg[opp_player].n_a=n_a;
 					s_msg[opp_player].n_b=n_b;
 					s_msg[opp_player].n_c=n_c;

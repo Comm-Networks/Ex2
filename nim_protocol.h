@@ -53,6 +53,7 @@
 		short n_a; /* heap A size */
 		short n_b; /* heap B size */
 		short n_c; /* heap C size */
+		char legal ; // g - good b- illegal
 		short player_turn; /* turn of player num 1 or 2*/
 		short cubes_removed; /* num of cubes removed by opponent*/
 		char  heap_name; /*name of heap , the opponent removed cubes from*/
