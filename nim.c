@@ -236,7 +236,7 @@ int main(int argc , char** argv){
 			} else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
 				char msg[256];
-				scanf("SG %s\n", &msg);
+				scanf("MSG %s\n", &msg);
 
 				// Sending message to server.
 				// TODO
