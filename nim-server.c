@@ -80,7 +80,7 @@ int main(int argc , char** argv) {
 	fd_set read_fds;
 	fd_set write_fds;
 
-	client_msg c_msg[NUM_CLIENTS];
+	client_msg c_msg;
 	server_msg s_msg[NUM_CLIENTS];
 	after_move_msg am_msg;
 	init_server_msg init_s_msg;
@@ -182,7 +182,7 @@ int main(int argc , char** argv) {
 	timer[0] = (double) clock() / CLOCKS_PER_SEC;
 	// Main loop.
 	for (;;) {
-
+		printf("Here\n");
 
 
 		FD_ZERO(&read_fds);
@@ -213,6 +213,7 @@ int main(int argc , char** argv) {
 		}
 		//listening socket is read-ready - can accept
 		if (FD_ISSET(listening_sock,&read_fds)){
+			printf("Here\n");
 			size = sizeof(struct sockaddr_in);
 			new_sock = accept(listening_sock, (struct sockaddr*)&client_adrr, &size);
 			if (new_sock<0){

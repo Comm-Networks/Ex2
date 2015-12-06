@@ -87,7 +87,7 @@ int main(int argc , char** argv){
 
 	// Adding socket to read and write sets.
 	FD_SET(sockfd, &read_set);
-	FD_SET(sockfd, &write_set);
+	//FD_SET(sockfd, &write_set);
 
 	int ret_val=0;
 
@@ -96,13 +96,15 @@ int main(int argc , char** argv){
 
 	//first of all get all init message.
 	while (1){
-		ret_val=select(sockfd,&read_set,NULL,NULL,NULL);
+		printf("Here\n");
+		ret_val=select(sockfd + 1, &read_set, NULL, NULL, NULL);
+		printf("Here\n");
 		if (ret_val==-1){
 			printf("failed using select function: %s\n",strerror(errno));
 			close(sockfd);
 			return EXIT_FAILURE;
 		}
-		if (ISSET(sockfd,&read_set)){
+		if (FD_ISSET(sockfd,&read_set)){
 			ret_val = recv(sockfd, &current_s_msg + current_s_msg_offset, size, 0);
 			if (ret_val==-1){
 				printf("Client:failed to read from server: %s\n",strerror(errno));
@@ -143,7 +145,7 @@ int main(int argc , char** argv){
 	for (;;) {
 
 		// Checking if server is ready to send.
-		ret_val=select(sockfd+1,&read_set,NULL,NULL,NULL);
+		ret_val=select(sockfd + 1, &read_set, NULL, NULL, NULL);
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
 			end_game=1;
@@ -151,7 +153,7 @@ int main(int argc , char** argv){
 
 		}
 
-		else if (ISSET(sockfd,&read_set)) {
+		else if (FD_ISSET(sockfd,&read_set)) {
 
 			// Recv data from server.
 			size = sizeof(msg) - current_s_msg_offset;
@@ -202,14 +204,16 @@ int main(int argc , char** argv){
 					break;
 
 				case AM_MSG:
-					char * am_print = data->am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
-					printf("%s\n",am_print);
+					if (1) {
+						char * am_print = data->am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
+						printf("%s\n",am_print);
 
-					if (data->am_msg.legal == LEGAL_MOVE) {
-						// Print updated piles list after legal move.
-						printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->am_msg.n_a, data->am_msg.n_b, data->am_msg.n_c);
+						if (data->am_msg.legal == LEGAL_MOVE) {
+							// Print updated piles list after legal move.
+							printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->am_msg.n_a, data->am_msg.n_b, data->am_msg.n_c);
+						}
+						my_turn=0;
 					}
-					my_turn=0;
 
 					break;
 
@@ -240,7 +244,7 @@ int main(int argc , char** argv){
 		}
 
 		//checks if it is ok to read from stdin
-		if (ISSET(fileno(stdin),&read_set)){
+		if (FD_ISSET(fileno(stdin),&read_set)){
 
 			scanf(" %c", &pile); // Space before %c is to consume the newline char from the previous scanf.
 			if (pile == QUIT_CHAR) {
@@ -297,7 +301,7 @@ int main(int argc , char** argv){
 					printf("failed using select function: %s\n",strerror(errno));
 					break;
 				}
-				if (ISSET(sockfd,&write_set)) {
+				if (FD_ISSET(sockfd,&write_set)) {
 					// Sending data to server.
 					ret_val = send(sockfd, &current_msg + current_msg_offset, size, 0);
 					if (ret_val == -1) {

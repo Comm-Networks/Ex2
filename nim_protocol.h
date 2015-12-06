@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
+#include <sys/select.h>
 
 
 #define DEFAULT_HOST "localhost"
