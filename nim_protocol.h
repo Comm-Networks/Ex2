@@ -100,7 +100,6 @@
 		init_server_msg init_msg;
 		server_msg s_msg;
 		chat_msg chat;
-		client_move_msg c_msg;
 		after_move_msg am_msg;
 	} data_union;
 	typedef struct {
