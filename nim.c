@@ -203,7 +203,7 @@ int main(int argc , char** argv){
 					}
 					else {
 						// Game continues.
-						if (data->s_msg.player_turn != client_num) {
+						if (data->s_msg.player_turn == client_num) {
 							// Other player made a move.Give this client  the right message. Now it is his turn.
 							if (data->s_msg.legal == LEGAL_MOVE) {
 								printf("Client %hd removed %hd cubes from heap %c\n", data->s_msg.player_turn,\
