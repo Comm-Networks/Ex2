@@ -41,7 +41,7 @@ int main(int argc , char** argv){
 	short msg_fully_recieved;
 
 	struct timeval zero_time;
-	zero_time.tv_sec = 0;
+	zero_time.tv_sec = 4;
 	zero_time.tv_usec = 0;
 
 	// For select.
@@ -265,7 +265,11 @@ int main(int argc , char** argv){
 		}
 
 		//we can recieve input from stdin all the time , even if it is not the player's turn
-		ret_val=select(fileno(stdin),&read_set,NULL,NULL, &zero_time);
+		printf("Here\n");
+		FD_ZERO(&read_set);
+		FD_SET(fileno(stdin), &read_set);
+		ret_val=select(fileno(stdin) + 1, &read_set, NULL, NULL, &zero_time);
+		printf("Here2\n");
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
 			break;
@@ -324,7 +328,7 @@ int main(int argc , char** argv){
 				size = sizeof(current_msg) - current_msg_offset;
 
 				// Checking if server is ready to recv.
-				ret_val=select(sockfd,NULL,&write_set,NULL,NULL);
+				ret_val=select(sockfd + 1, NULL, &write_set, NULL, NULL);
 				if (ret_val == -1) {
 					printf("failed using select function: %s\n",strerror(errno));
 					break;
@@ -344,6 +348,7 @@ int main(int argc , char** argv){
 						// Message fully sent. Updating queue.
 						current_msg_offset = -1;
 						queue_sent++;
+						printf("Sent %d\n", size);
 					}
 				}
 
