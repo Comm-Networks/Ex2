@@ -195,7 +195,6 @@ int main(int argc , char** argv){
 
 				switch (current_s_msg.type) {
 				case SERVER_MSG:
-					game_started = 1;
 					if (data->s_msg.winner != NO_WIN) {
 						char * result = data->s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
 						printf("You %s!\n", result);
@@ -220,10 +219,14 @@ int main(int argc , char** argv){
 							}
 							my_turn=1;
 							printf("Your turn:\n");
+
+						} else if (!game_started) {
+							// Just show initial piles.
+							printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n",\
+									data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
 						}
-
-
 					}
+					game_started = 1;
 
 					break;
 
