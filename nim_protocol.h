@@ -23,9 +23,13 @@
 #define NO_WIN 'n'
 #define LEGAL_MOVE 'g'
 #define ILLEGAL_MOVE 'b'
+#define INIT_CHAR 'i'
 #define NUM_CLIENTS 2
 #define MSG_NUM 100
 #define MSG_MAX_SIZE 255
+
+
+#define DEBUG 1
 
 
 
@@ -54,7 +58,7 @@
 		short n_a; /* heap A size */
 		short n_b; /* heap B size */
 		short n_c; /* heap C size */
-		char legal ; // g - good b- illegal
+		char legal ; // g - good b- illegal i-first message after init message
 		short player_turn; /* turn of player num 1 or 2*/
 		short cubes_removed; /* num of cubes removed by opponent*/
 		char  heap_name; /*name of heap , the opponent removed cubes from*/

@@ -39,6 +39,7 @@ int main(int argc , char** argv){
 	short client_num;
 	short my_turn;
 	short msg_fully_recieved;
+	struct timeval time;
 
 	// For select.
 	fd_set stdin_set;
@@ -96,15 +97,18 @@ int main(int argc , char** argv){
 
 	//first of all get all init message.
 	while (1){
-		printf("Here\n");
+
 		ret_val=select(sockfd + 1, &read_set, NULL, NULL, NULL);
-		printf("Here\n");
+
 		if (ret_val==-1){
 			printf("failed using select function: %s\n",strerror(errno));
 			close(sockfd);
 			return EXIT_FAILURE;
 		}
 		if (FD_ISSET(sockfd,&read_set)){
+			if (DEBUG){
+				printf("ready to recieve\n");
+			}
 			ret_val = recv(sockfd, &current_s_msg + current_s_msg_offset, size, 0);
 			if (ret_val==-1){
 				printf("Client:failed to read from server: %s\n",strerror(errno));
@@ -118,7 +122,6 @@ int main(int argc , char** argv){
 			}
 			else {
 				current_s_msg_offset = 0; // Resetting for next use.
-
 				break;
 			}
 		}
@@ -142,7 +145,14 @@ int main(int argc , char** argv){
 		}
 	}
 
-	for (;;) {
+	while (1) {
+
+		FD_ZERO(&read_set);
+		FD_ZERO(&write_set);
+
+		//add client socket to read fds set
+		FD_SET(sockfd,&read_set);
+		FD_SET(sockfd,&write_set);
 
 		// Checking if server is ready to send.
 		ret_val=select(sockfd + 1, &read_set, NULL, NULL, NULL);
@@ -183,28 +193,31 @@ int main(int argc , char** argv){
 					else {
 						// Game continues.
 						if (data->s_msg.player_turn != client_num) {
-							// Other's turn.
+							// Other player made a move.Give this client  the right message. Now it is his turn.
 							if (data->s_msg.legal == LEGAL_MOVE) {
 								printf("Client %hd removed %hd cubes from heap %c\n", data->s_msg.player_turn,\
 										data->s_msg.cubes_removed, data->s_msg.heap_name);
 								printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n",\
 										data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
 							}
-							else {
+							else if (data->s_msg.legal == ILLEGAL_MOVE) {
 								printf("Client %hd made an illegal move\n", data->s_msg.player_turn);
 							}
-						}
-						else {
-							// Your turn.
+							else {
+								printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n",\
+										data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
+							}
 							my_turn=1;
-							printf("Heap A: %d\nHeap B: %d\nHeap C: %d\n", data->s_msg.n_a, data->s_msg.n_b, data->s_msg.n_c);
+							printf("Your turn:\n");
 						}
+
+
 					}
 
 					break;
 
 				case AM_MSG:
-					if (1) {
+					if(1){
 						char * am_print = data->am_msg.legal == ILLEGAL_MOVE ? "Illegal move" : "Move accepted";
 						printf("%s\n",am_print);
 
@@ -232,10 +245,6 @@ int main(int argc , char** argv){
 
 		}
 
-
-		if (my_turn && msg_fully_recieved) {
-			printf("Your turn:\n");
-		}
 		//we can recieve input from stdin all the time , even if it is not the player's turn
 		ret_val=select(fileno(stdin),&read_set,NULL,NULL,NULL);
 		if (ret_val == -1) {

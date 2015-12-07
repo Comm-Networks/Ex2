@@ -108,6 +108,7 @@ int main(int argc , char** argv) {
 	s_msg[0].n_c = n_c;
 	s_msg[0].winner = NO_WIN;
 	s_msg[0].player_turn=0;
+	s_msg[0].legal=INIT_CHAR;
 
 
 
@@ -170,6 +171,7 @@ int main(int argc , char** argv) {
 	msg_type temp_type;
 	int init_msg_sent[NUM_CLIENTS]={0};
 	int start_game=0;
+	struct timeval time;
 
 	//initilizing arrays to all 0
 	memset(msgs_index,0,NUM_CLIENTS);
@@ -181,7 +183,7 @@ int main(int argc , char** argv) {
 
 	timer[0] = (double) clock() / CLOCKS_PER_SEC;
 	// Main loop.
-	for (;;) {
+	while (1) {
 		printf("Here\n");
 
 
@@ -205,22 +207,24 @@ int main(int argc , char** argv) {
 			}
 		}
 
+		time.tv_sec=20;
+		time.tv_usec=0;
 		//return read-ready sockets
-		ret_val= select(max_fd+1,&read_fds,NULL,NULL,NULL);
+		ret_val= select(max_fd+1,&read_fds,NULL,NULL,&time);
 		if (ret_val<0){
 			printf("Server:failed using select function: %s\n",strerror(errno));
 			break;
 		}
 		//listening socket is read-ready - can accept
 		if (FD_ISSET(listening_sock,&read_fds)){
-			printf("Here\n");
 			size = sizeof(struct sockaddr_in);
 			new_sock = accept(listening_sock, (struct sockaddr*)&client_adrr, &size);
 			if (new_sock<0){
 				printf("problem while trying to accept incoming call : %s\n",strerror(errno));
 				continue;
 			}
-			init_s_msg.client_num= ++clients_connected;
+			init_s_msg.client_num= clients_connected+1;
+			clients_connected++;
 			client_sockets[init_s_msg.client_num-1]=new_sock;
 			FD_SET(new_sock,&write_fds);
 			max_fd = (new_sock>max_fd)? new_sock : max_fd;
@@ -228,6 +232,9 @@ int main(int argc , char** argv) {
 
 			//setting the message we want to send;
 			if (clients_connected<=2){
+				if (DEBUG){
+					printf("adding init msg for client #%d\n",init_s_msg.client_num);
+				}
 				start_game = (clients_connected==2) ;
 				temp_type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].type=INIT_MSG;
@@ -254,6 +261,9 @@ int main(int argc , char** argv) {
 		else  if (clients_connected>0){
 			if (!start_game){
 				continue;
+			}
+			if (DEBUG){
+				printf("Hurray!\n");
 			}
 			timer[player_turn] = -1*timer[player_turn] +(double) clock()/ CLOCKS_PER_SEC ;
 
@@ -303,7 +313,12 @@ int main(int argc , char** argv) {
 							continue;
 						}
 						else if (msgs_to_send[player_turn][i].type==INIT_MSG){
-							init_msg_sent[player_turn]=1;
+							if (player_turn==0){
+								i=msgs_index[player_turn] % MSG_NUM;
+								msgs_index[player_turn]=i+1;
+								msgs_to_send[player_turn][i].type=SERVER_MSG;
+								msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
+							}
 							continue;
 						}
 						else if (msgs_to_send[player_turn][i].type == SERVER_MSG &&
@@ -318,6 +333,54 @@ int main(int argc , char** argv) {
 					}
 				}
 			}
+
+			if (cmsg_fully_recieved[opp_player]){
+
+				i= opp_player==0 ? queue_head_1 : queue_head_2;
+				if (msgs_to_send[opp_player][i].type==CHAT_MSG || msgs_to_send[opp_player][i].type==INIT_MSG){
+
+					sock=client_sockets[opp_player];
+
+					ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+					if (ret_val< 0) {
+						printf("Server:failed using select function: %s\n",strerror(errno));
+						break;
+					}
+					//trying to send the server msg or any previous server msg to client.
+					if (FD_ISSET(sock,&write_fds)){
+
+						size=sizeof(msgs_to_send[opp_player][i])-offset[opp_player]; //decrease the num of bytes already sent.
+						//first byte sent is the type and it will be sent for sure(at least one byte is sent).
+						ret_val = send(sock, &(msgs_to_send[opp_player][i])+offset[opp_player], size,0);
+						if (ret_val ==-1){
+							printf("Error sending message to client #%d: %s\n",player_turn-1,strerror(errno));
+							break;
+						}
+						//part of msg was sent. update the offset to start next send from bytes that haven't been sent yet.
+						else if (ret_val<size) {
+							offset[opp_player] +=ret_val ;
+							msg_fully_sent[opp_player]=0;
+						}
+						//finished sending the message
+						else {
+							if (opp_player==0){
+								queue_head_1++;
+								queue_head_1 %=MSG_NUM;
+							}
+							else {
+								queue_head_2++;
+								queue_head_2%=MSG_NUM;
+							}
+							offset[opp_player]=0;
+							msg_fully_sent[opp_player]=1;
+
+
+						}
+
+					}
+				}
+			}
+
 
 
 			//a full message was sent to the client, now we want to recieve a reply.
@@ -345,7 +408,7 @@ int main(int argc , char** argv) {
 
 			//checks if the second client is read-ready. If it is, try to read from it.
 
-			if (FD_ISSET(client_sockets[opp_player],&read_fds)){
+			if (msg_fully_sent[opp_player] && FD_ISSET(client_sockets[opp_player],&read_fds)){
 				sock=client_sockets[opp_player];
 				ret_val=recieveClientMessage(opp_player,types,sock,&c_offset[opp_player],c_msg_recieved);
 				if (ret_val<0){
@@ -487,7 +550,9 @@ int main(int argc , char** argv) {
 			}
 		}
 		else {
-			break;
+			if (start_game){
+				break;
+			}
 		}
 	}
 	for (i=0; i<NUM_CLIENTS;i++){
