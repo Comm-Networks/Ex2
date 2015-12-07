@@ -25,7 +25,7 @@
 #define ILLEGAL_MOVE 'b'
 #define INIT_CHAR 'i'
 #define NUM_CLIENTS 2
-#define MSG_NUM 100
+#define MSG_NUM 50
 #define MSG_MAX_SIZE 255
 
 

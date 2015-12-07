@@ -116,11 +116,17 @@ int main(int argc , char** argv){
 			}
 			else if (ret_val<size) {
 				// Message received partially.
+				if (DEBUG){
+					printf("recieved only part of msg\n");
+				}
 				size -= ret_val;
 				current_s_msg_offset += ret_val;
 
 			}
 			else {
+				if (DEBUG){
+					printf("all init msg recieved\n");
+				}
 				current_s_msg_offset = 0; // Resetting for next use.
 				break;
 			}
@@ -139,8 +145,8 @@ int main(int argc , char** argv){
 		// Fetch client num and display messages.
 		client_num = current_s_msg.data.init_msg.client_num;
 		my_turn = !(client_num == 1); //client number 1 is represented by 0 here
-		printf("You are client %hd\n", client_num);
-		if (client_num == 1) {
+		printf("You are client %hd\n", client_num+1);
+		if (client_num == 0) {
 			printf("Waiting to client 2 to connect\n");
 		}
 	}

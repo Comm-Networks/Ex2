@@ -164,7 +164,7 @@ int main(int argc , char** argv) {
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
 	msg msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
-	int msgs_index[NUM_CLIENTS];
+	int queue_tail[NUM_CLIENTS];
 	int queue_head_1=0;	int queue_head_2=0;
 	client_msg c_msg_recieved[NUM_CLIENTS];
 	msg_type types[NUM_CLIENTS];
@@ -174,7 +174,7 @@ int main(int argc , char** argv) {
 	struct timeval time;
 
 	//initilizing arrays to all 0
-	memset(msgs_index,0,NUM_CLIENTS);
+	memset(queue_tail,0,NUM_CLIENTS);
 	memset(msg_fully_sent,0,NUM_CLIENTS);
 	memset(cmsg_fully_recieved,1,NUM_CLIENTS);
 	memset(offset,0,NUM_CLIENTS);
@@ -223,9 +223,8 @@ int main(int argc , char** argv) {
 				printf("problem while trying to accept incoming call : %s\n",strerror(errno));
 				continue;
 			}
-			init_s_msg.client_num= clients_connected+1;
-			clients_connected++;
-			client_sockets[init_s_msg.client_num-1]=new_sock;
+			init_s_msg.client_num= (short) clients_connected++;
+			client_sockets[init_s_msg.client_num]=new_sock;
 			FD_SET(new_sock,&write_fds);
 			max_fd = (new_sock>max_fd)? new_sock : max_fd;
 
@@ -233,7 +232,7 @@ int main(int argc , char** argv) {
 			//setting the message we want to send;
 			if (clients_connected<=2){
 				if (DEBUG){
-					printf("adding init msg for client #%d\n",init_s_msg.client_num);
+					printf("adding init msg for client #%d\n",init_s_msg.client_num+1);
 				}
 				start_game = (clients_connected==2) ;
 				temp_type=INIT_MSG;
@@ -248,7 +247,7 @@ int main(int argc , char** argv) {
 					temp_type=REJECTED_MSG;
 					size = sizeof(temp_type);
 					if (send(new_sock,&temp_type,size,0)==-1){
-						printf("Error sending message to client #%d: %s\n",player_turn-1,strerror(errno));
+						printf("Error sending message to client #%d: %s\n",clients_connected,strerror(errno));
 					}
 					close(new_sock);
 					client_sockets[clients_connected--]=-1;
@@ -259,9 +258,7 @@ int main(int argc , char** argv) {
 
 		//its an IO operation. all sockets are connected.
 		else  if (clients_connected>0){
-			if (!start_game){
-				continue;
-			}
+
 			if (DEBUG){
 				printf("Hurray!\n");
 			}
@@ -284,6 +281,10 @@ int main(int argc , char** argv) {
 				//trying to send the server msg or any previous server msg to client.
 				if (FD_ISSET(sock,&write_fds)){
 					i= player_turn==0 ? queue_head_1 : queue_head_2;
+					if (!start_game && msgs_to_send[player_turn][i].type!=INIT_MSG){
+						continue;
+					}
+
 					size=sizeof(msgs_to_send[player_turn][i])-offset[player_turn]; //decrease the num of bytes already sent.
 					//first byte sent is the type and it will be sent for sure(at least one byte is sent).
 					ret_val = send(sock, &(msgs_to_send[player_turn][i])+offset[player_turn], size,0);
@@ -308,27 +309,33 @@ int main(int argc , char** argv) {
 						}
 						offset[player_turn]=0;
 						msg_fully_sent[player_turn]=1;
-						if (msgs_to_send[player_turn][i].type==AM_MSG){
-							player_turn= (player_turn+1) % 1;
-							continue;
-						}
-						else if (msgs_to_send[player_turn][i].type==INIT_MSG){
-							if (player_turn==0){
-								i=msgs_index[player_turn] % MSG_NUM;
-								msgs_index[player_turn]=i+1;
-								msgs_to_send[player_turn][i].type=SERVER_MSG;
-								msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
-							}
-							continue;
-						}
-						else if (msgs_to_send[player_turn][i].type == SERVER_MSG &&
-								msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
-							close(client_sockets[player_turn]);
-							clients_connected--;
-							client_sockets[player_turn]=-1;
-							player_turn= (player_turn+1) % 1;
-							continue;
+						switch (msgs_to_send[player_turn][i].type){
+						case (AM_MSG):
+														player_turn= (player_turn+1) % 1;
+						break;
 
+						case (INIT_MSG):
+														if (player_turn==0){
+															queue_tail[player_turn]++;
+															queue_tail[player_turn]%= MSG_NUM;
+															msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
+															msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
+															printf("sent init\n");
+														}
+						break;
+
+						case(SERVER_MSG):
+																if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
+																	close(client_sockets[player_turn]);
+																	clients_connected--;
+																	client_sockets[player_turn]=-1;
+																	player_turn= (player_turn+1) % 1;
+
+																}
+						break;
+
+						default:
+							break;
 						}
 					}
 				}
@@ -421,8 +428,8 @@ int main(int argc , char** argv) {
 
 			//opponent message wad fully recieved.
 			if (cmsg_fully_recieved[opp_player]){
-				i=msgs_index[player_turn] % MSG_NUM;
-				msgs_index[player_turn]=i+1;
+				i=queue_tail[player_turn] % MSG_NUM;
+				queue_tail[player_turn]=i+1;
 
 				if (types[opp_player]==CHAT_MSG){
 					msgs_to_send[player_turn][i].data.chat=c_msg_recieved[opp_player].data.chat;
@@ -435,8 +442,8 @@ int main(int argc , char** argv) {
 						client_sockets[player_turn]=-1;
 						clients_connected--;
 						s_msg[player_turn].winner=CLIENT_WIN; // no need to update rest of the message. only matters is that he won.
-						i=msgs_index[player_turn] % MSG_NUM;
-						msgs_index[player_turn]=i+1;
+						i=queue_tail[player_turn] % MSG_NUM;
+						queue_tail[player_turn]=i+1;
 						msgs_to_send[player_turn][i].type=SERVER_MSG;
 						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
 						player_turn = (player_turn+1) % 1;
@@ -457,8 +464,8 @@ int main(int argc , char** argv) {
 
 				c_msg=c_msg_recieved[player_turn];
 				if (types[player_turn]==CHAT_MSG){
-					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i+1;
+					i=queue_tail[opp_player] % MSG_NUM;
+					queue_tail[opp_player]=i+1;
 					msgs_to_send[opp_player][i].data.chat=c_msg.data.chat;
 					msgs_to_send[opp_player][i].type=CHAT_MSG;
 					continue;
@@ -472,8 +479,8 @@ int main(int argc , char** argv) {
 					client_sockets[player_turn]=-1;
 					clients_connected--;
 					s_msg[opp_player].winner=CLIENT_WIN;
-					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i+1;
+					i=queue_tail[opp_player] % MSG_NUM;
+					queue_tail[opp_player]=i+1;
 					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
 					msgs_to_send[opp_player][i].type=SERVER_MSG;
 				}
@@ -510,8 +517,8 @@ int main(int argc , char** argv) {
 					}
 
 					//adding am_msg to the current player's msgs queue.
-					i=msgs_index[player_turn] % MSG_NUM;
-					msgs_index[player_turn]=i+1;
+					i=queue_tail[player_turn] % MSG_NUM;
+					queue_tail[player_turn]=i+1;
 					msgs_to_send[player_turn][i].data.am_msg=am_msg;
 					msgs_to_send[player_turn][i].type=AM_MSG;
 
@@ -532,8 +539,8 @@ int main(int argc , char** argv) {
 						s_msg[player_turn].winner= CLIENT_WIN;
 
 						//adding the server msg to the current player's turn. letting him know he won.
-						i=msgs_index[player_turn] % MSG_NUM;
-						msgs_index[player_turn]=i+1;
+						i=queue_tail[player_turn] % MSG_NUM;
+						queue_tail[player_turn]=i+1;
 						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
 						msgs_to_send[player_turn][i].type=SERVER_MSG;
 					}
@@ -542,8 +549,8 @@ int main(int argc , char** argv) {
 					}
 
 					//adding the server msg to the next player's msgs queue.
-					i=msgs_index[opp_player] % MSG_NUM;
-					msgs_index[opp_player]=i+1;
+					i=queue_tail[opp_player] % MSG_NUM;
+					queue_tail[opp_player]=i+1;
 					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
 					msgs_to_send[opp_player][i].type=SERVER_MSG;
 				}
@@ -563,4 +570,5 @@ int main(int argc , char** argv) {
 	close(listening_sock);
 	return (ret_val == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
+
 
