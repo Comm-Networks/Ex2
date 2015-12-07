@@ -166,10 +166,10 @@ int main(int argc , char** argv) {
 	msg msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
 	int queue_tail[NUM_CLIENTS];
 	int queue_head_1=0;	int queue_head_2=0;
+	short init_msg_sent[NUM_CLIENTS]={0};
 	client_msg c_msg_recieved[NUM_CLIENTS];
 	msg_type types[NUM_CLIENTS];
 	msg_type temp_type;
-	int init_msg_sent[NUM_CLIENTS]={0};
 	int start_game=0;
 	struct timeval time;
 
@@ -234,16 +234,17 @@ int main(int argc , char** argv) {
 				if (DEBUG){
 					printf("adding init msg for client #%d\n",init_s_msg.client_num+1);
 				}
-				start_game = (clients_connected==2) ;
+
 				temp_type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].data.init_msg=init_s_msg;
 			}
 
 			//try letting the 3rd client know he is rejected.
-			if (FD_ISSET(new_sock,&write_fds)){
 
-				if (clients_connected>2){
+
+			if (clients_connected>2){
+				if (FD_ISSET(new_sock,&write_fds)){
 					temp_type=REJECTED_MSG;
 					size = sizeof(temp_type);
 					if (send(new_sock,&temp_type,size,0)==-1){
@@ -253,6 +254,7 @@ int main(int argc , char** argv) {
 					client_sockets[clients_connected--]=-1;
 				}
 			}
+
 
 		}
 
@@ -311,27 +313,31 @@ int main(int argc , char** argv) {
 						msg_fully_sent[player_turn]=1;
 						switch (msgs_to_send[player_turn][i].type){
 						case (AM_MSG):
-														player_turn= (player_turn+1) % 1;
+																player_turn= (player_turn+1) % 1;
 						break;
 
 						case (INIT_MSG):
-														if (player_turn==0){
-															queue_tail[player_turn]++;
-															queue_tail[player_turn]%= MSG_NUM;
-															msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
-															msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
-															printf("sent init\n");
-														}
+								init_msg_sent[player_turn]=1;
+								if (player_turn==0){
+									queue_tail[player_turn]++;
+									queue_tail[player_turn]%= MSG_NUM;
+									msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
+									msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
+
+								}
+								if (DEBUG){
+									printf("sent init\n");
+								}
 						break;
 
 						case(SERVER_MSG):
-																if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
-																	close(client_sockets[player_turn]);
-																	clients_connected--;
-																	client_sockets[player_turn]=-1;
-																	player_turn= (player_turn+1) % 1;
+																		if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
+																			close(client_sockets[player_turn]);
+																			clients_connected--;
+																			client_sockets[player_turn]=-1;
+																			player_turn= (player_turn+1) % 1;
 
-																}
+																		}
 						break;
 
 						default:
@@ -347,8 +353,13 @@ int main(int argc , char** argv) {
 				if (msgs_to_send[opp_player][i].type==CHAT_MSG || msgs_to_send[opp_player][i].type==INIT_MSG){
 
 					sock=client_sockets[opp_player];
-
+					if (DEBUG){
+						printf("before select of opponent.Maybe no need for another select.\n");
+					}
 					ret_val=select(max_fd+1,NULL,&write_fds,NULL,NULL);
+					if (DEBUG){
+						printf("after select of opp.\n");
+					}
 					if (ret_val< 0) {
 						printf("Server:failed using select function: %s\n",strerror(errno));
 						break;
@@ -370,13 +381,18 @@ int main(int argc , char** argv) {
 						}
 						//finished sending the message
 						else {
+							if (msgs_to_send[opp_player][i].type==INIT_MSG){
+								init_msg_sent[opp_player]=1;
+								queue_tail[opp_player] = (queue_tail[opp_player]+1) % MSG_NUM;
+								if (DEBUG){
+									printf("init msg sent!\n");
+								}
+							}
 							if (opp_player==0){
-								queue_head_1++;
-								queue_head_1 %=MSG_NUM;
+								queue_head_1 = (queue_head_1+1) % MSG_NUM;
 							}
 							else {
-								queue_head_2++;
-								queue_head_2%=MSG_NUM;
+								queue_head_2=(queue_head_2+1)%MSG_NUM;
 							}
 							offset[opp_player]=0;
 							msg_fully_sent[opp_player]=1;
@@ -387,12 +403,16 @@ int main(int argc , char** argv) {
 					}
 				}
 			}
-
+			start_game = (init_msg_sent[player_turn] && init_msg_sent[opp_player]) ;
+			if (!start_game){
+				continue;
+			}
 
 
 			//a full message was sent to the client, now we want to recieve a reply.
 			if (msg_fully_sent[player_turn]){
-				ret_val=select(max_fd+1,&read_fds,NULL,NULL,NULL);
+				time.tv_sec=60;
+				ret_val=select(max_fd+1,&read_fds,NULL,NULL,&time);
 				if (ret_val< 0) {
 					printf("Server:failed using select function: %s\n",strerror(errno));
 					break;
@@ -405,12 +425,6 @@ int main(int argc , char** argv) {
 					}
 					timer[player_turn]=(double) clock() / CLOCKS_PER_SEC;
 				}
-			}
-
-			ret_val=select(max_fd+1,&read_fds,NULL,NULL,NULL);
-			if (ret_val< 0) {
-				printf("Server:failed using select function: %s\n",strerror(errno));
-				break;
 			}
 
 			//checks if the second client is read-ready. If it is, try to read from it.
