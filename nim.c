@@ -39,7 +39,10 @@ int main(int argc , char** argv){
 	short client_num;
 	short my_turn;
 	short msg_fully_recieved;
-	struct timeval time;
+
+	struct timeval zero_time;
+	zero_time.tv_sec = 0;
+	zero_time.tv_usec = 0;
 
 	// For select.
 	fd_set stdin_set;
@@ -91,6 +94,7 @@ int main(int argc , char** argv){
 	//FD_SET(sockfd, &write_set);
 
 	int ret_val=0;
+	short game_started = 0;
 
 	// Getting init msg.
 	size = sizeof(current_s_msg);
@@ -161,7 +165,7 @@ int main(int argc , char** argv){
 		FD_SET(sockfd,&write_set);
 
 		// Checking if server is ready to send.
-		ret_val=select(sockfd + 1, &read_set, NULL, NULL, NULL);
+		ret_val=select(sockfd + 1, &read_set, NULL, NULL, &zero_time);
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
 			end_game=1;
@@ -191,6 +195,7 @@ int main(int argc , char** argv){
 
 				switch (current_s_msg.type) {
 				case SERVER_MSG:
+					game_started = 1;
 					if (data->s_msg.winner != NO_WIN) {
 						char * result = data->s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
 						printf("You %s!\n", result);
@@ -251,8 +256,13 @@ int main(int argc , char** argv){
 
 		}
 
+		if (!game_started) {
+			// Can't read input from user if game not started yet.
+			continue;
+		}
+
 		//we can recieve input from stdin all the time , even if it is not the player's turn
-		ret_val=select(fileno(stdin),&read_set,NULL,NULL,NULL);
+		ret_val=select(fileno(stdin),&read_set,NULL,NULL, &zero_time);
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
 			break;
