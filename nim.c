@@ -145,7 +145,7 @@ int main(int argc , char** argv){
 		// Fetch client num and display messages.
 		client_num = current_s_msg.data.init_msg.client_num;
 		my_turn = !(client_num == 1); //client number 1 is represented by 0 here
-		printf("You are client %hd\n", client_num+1);
+		printf("You are client %hd\n", (short)(client_num+1));
 		if (client_num == 0) {
 			printf("Waiting to client 2 to connect\n");
 		}
