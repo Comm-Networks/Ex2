@@ -98,6 +98,7 @@ int main(int argc , char** argv){
 
 	// Getting init msg.
 	size = sizeof(current_s_msg);
+	printf("nim\n");
 
 	//first of all get all init message.
 	while (1){
@@ -110,9 +111,7 @@ int main(int argc , char** argv){
 			return EXIT_FAILURE;
 		}
 		if (FD_ISSET(sockfd,&read_set)){
-			if (DEBUG){
-				printf("ready to recieve\n");
-			}
+
 			ret_val = recv(sockfd, &current_s_msg + current_s_msg_offset, size, 0);
 			if (ret_val==-1){
 				printf("Client:failed to read from server: %s\n",strerror(errno));
@@ -120,17 +119,13 @@ int main(int argc , char** argv){
 			}
 			else if (ret_val<size) {
 				// Message received partially.
-				if (DEBUG){
-					printf("recieved only part of msg\n");
-				}
+
 				size -= ret_val;
 				current_s_msg_offset += ret_val;
 
 			}
 			else {
-				if (DEBUG){
-					printf("all init msg recieved\n");
-				}
+
 				current_s_msg_offset = 0; // Resetting for next use.
 				break;
 			}
@@ -168,7 +163,7 @@ int main(int argc , char** argv){
 		ret_val=select(sockfd + 1, &read_set, NULL, NULL, &zero_time);
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
-			end_game=1;
+			break;
 			continue;
 
 		}
@@ -199,6 +194,7 @@ int main(int argc , char** argv){
 						char * result = data->s_msg.winner == CLIENT_WIN ? "win" : "lose" ;
 						printf("You %s!\n", result);
 						end_game=1;
+						break;
 					}
 					else {
 						// Game continues.
@@ -245,7 +241,7 @@ int main(int argc , char** argv){
 					break;
 
 				case CHAT_MSG:
-					printf("Client %hd: %s\n", data->chat.sender_num, data->chat.msg);
+					printf("Client %d: %s", data->chat.sender_num+1, data->chat.msg);
 					break;
 
 				default:
@@ -259,6 +255,10 @@ int main(int argc , char** argv){
 
 		}
 
+		//if game was ended(there was a win) - exit the program cleanly.
+		if (end_game){
+			break;
+		}
 		if (!game_started) {
 			// Can't read input from user if game not started yet.
 			continue;
@@ -287,8 +287,7 @@ int main(int argc , char** argv){
 				else {
 					printf("You can quit only on your turn.\n");
 				}
-				/*TOMER: No need to shutdown. We have select. Server will not be able to send us message and close
-				         the socket after 1 minute.*/
+
 			}
 			else if (pile == MSG_CHAR) {
 				// Client wants to send a message. Getting the message.
@@ -345,12 +344,12 @@ int main(int argc , char** argv){
 					}
 					else {
 						// Message fully sent. Updating queue.
-						if (DEBUG && current_msg.type==CLIENT_MOVE_MSG){
-							printf("pile:%c , cubes:%hd\n",current_msg.data.client_move.heap_name,current_msg.data.client_move.num_cubes_to_remove);
+						if (current_msg.type==CLIENT_MOVE_MSG && current_msg.data.client_move.heap_name==QUIT_CHAR){
+							break;
 						}
 						current_msg_offset = -1;
 						queue_sent++;
-						printf("Sent %d\n", size);
+
 					}
 				}
 

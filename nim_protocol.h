@@ -29,7 +29,6 @@
 #define MSG_MAX_SIZE 255
 
 
-#define DEBUG 1
 
 
 
