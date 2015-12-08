@@ -265,11 +265,9 @@ int main(int argc , char** argv){
 		}
 
 		//we can recieve input from stdin all the time , even if it is not the player's turn
-		printf("Here\n");
 		FD_ZERO(&read_set);
 		FD_SET(fileno(stdin), &read_set);
 		ret_val=select(fileno(stdin) + 1, &read_set, NULL, NULL, &zero_time);
-		printf("Here2\n");
 		if (ret_val == -1) {
 			printf("failed using select function: %s\n",strerror(errno));
 			break;
@@ -306,6 +304,7 @@ int main(int argc , char** argv){
 				scanf(" %hd", &number);
 				if (my_turn && msg_fully_recieved){
 					//sending the move to the server
+
 					msg_queue[queue_head].type = CLIENT_MOVE_MSG;
 					msg_queue[queue_head].data.client_move.heap_name = pile;
 					msg_queue[queue_head].data.client_move.num_cubes_to_remove = number;
@@ -325,7 +324,7 @@ int main(int argc , char** argv){
 				}
 
 				// Trying to send.
-				size = sizeof(current_msg) - current_msg_offset;
+				size = sizeof(client_msg) - current_msg_offset;
 
 				// Checking if server is ready to recv.
 				ret_val=select(sockfd + 1, NULL, &write_set, NULL, NULL);
@@ -346,6 +345,9 @@ int main(int argc , char** argv){
 					}
 					else {
 						// Message fully sent. Updating queue.
+						if (DEBUG && current_msg.type==CLIENT_MOVE_MSG){
+							printf("pile:%c , cubes:%hd\n",current_msg.data.client_move.heap_name,current_msg.data.client_move.num_cubes_to_remove);
+						}
 						current_msg_offset = -1;
 						queue_sent++;
 						printf("Sent %d\n", size);

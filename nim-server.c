@@ -13,52 +13,35 @@ int empty_piles(int n_a,int n_b,int n_c) {
 /*
  * recieving a client message. return -1 on error, 0 on success.
  */
-int recieveClientMessage(int player_turn,msg_type type[NUM_CLIENTS],int sock,int* off,client_msg c_msg_recieved[NUM_CLIENTS]){
+int recieveClientMessage(int player_turn,int sock,int* off,client_msg c_msg_recieved[NUM_CLIENTS]){
 	int size;
 	int ret_val;
 	if (*off==0){
-		memset(&c_msg_recieved[player_turn],0,sizeof(client_msg));
-		ret_val = recv(sock,&type[player_turn],sizeof(msg_type),0);
-		if (ret_val<0){
-			return -1;
+		if (DEBUG){
+			printf("off 0\n");
 		}
-		*off+=sizeof(msg_type); //1 byte recieved for sure. no need to check.
+		memset(&(c_msg_recieved[player_turn]),0,sizeof(client_msg));
 	}
-	if (type[player_turn]==CHAT_MSG){
-		size =sizeof(chat_msg)-*off;
-		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.chat)+*off,size,0);
-		if (ret_val ==-1){
-			return -1;
-		}
-		else{
-			if (ret_val<size){
-				cmsg_fully_recieved[player_turn]=0;
-				*off+=ret_val;
-			}
-			else {
-				cmsg_fully_recieved[player_turn]=1;
-				*off=0;
-			}
-		}
 
+	size =sizeof(client_msg)-*off;
+	ret_val = recv(sock,&(c_msg_recieved[player_turn])+*off,size,0);
+	if (DEBUG){
+		printf("received msg\n");
 	}
-	else { //a client move message
-
-		size = sizeof(client_move_msg)-*off;
-		ret_val = recv(sock,&(c_msg_recieved[player_turn].data.client_move)+*off,size,0);
-		if (ret_val ==-1){
-			return -1;
+	if (ret_val ==-1){
+		return -1;
+	}
+	else{
+		if (ret_val<size){
+			cmsg_fully_recieved[player_turn]=0;
+			*off+=ret_val;
 		}
-		else{
-			//updating the client message to be the message we recieved so far.
-			if (ret_val<size){
-				cmsg_fully_recieved[player_turn]=0;
-				*off+=size;
+		else {
+			if (DEBUG){
+				printf("tomer3e\n");
 			}
-			else {
-				cmsg_fully_recieved[player_turn]=1;
-				*off=0;
-			}
+			cmsg_fully_recieved[player_turn]=1;
+			*off=0;
 		}
 	}
 	return 0;
@@ -177,23 +160,26 @@ int main(int argc , char** argv) {
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
 	msg msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
-	int queue_tail[NUM_CLIENTS] = { 0 };
-	int queue_head_1=0;	int queue_head_2=0;
-	short init_msg_sent[NUM_CLIENTS]={0};
+	int queue_tail[NUM_CLIENTS];
+	int queue_head[NUM_CLIENTS];
+	short init_msg_sent[NUM_CLIENTS];
 	client_msg c_msg_recieved[NUM_CLIENTS];
 	msg_type types[NUM_CLIENTS];
 	msg_type temp_type;
 	int start_game=0;
 	struct timeval time;
-	short first_smsg_recv[NUM_CLIENTS]={0};
+	short first_smsg_recv[NUM_CLIENTS];
 	short cmsg_recv[NUM_CLIENTS]; //if there is a message sent from client(does not have to be a full msg)
 
 	//initilizing arrays to all 0
 	cmsg_fully_recieved[0] = 1;
 	cmsg_fully_recieved[1] = 1;
 
+	memset(init_msg_sent,0,NUM_CLIENTS);
+	memset(first_smsg_recv,0,NUM_CLIENTS);
 	memset(cmsg_recv,0,NUM_CLIENTS);
 	memset(queue_tail,0,NUM_CLIENTS);
+	memset(queue_head,0,NUM_CLIENTS);
 	memset(msg_fully_sent,0,NUM_CLIENTS);
 	memset(offset,0,NUM_CLIENTS);
 	memset(c_offset,0,NUM_CLIENTS);
@@ -286,8 +272,6 @@ int main(int argc , char** argv) {
 		//its an IO operation. all sockets are connected.
 		else  if (clients_connected>0){
 
-			printf("Omer 012\n");
-
 			if (DEBUG){
 				printf("Hurray!\n");
 			}
@@ -295,6 +279,8 @@ int main(int argc , char** argv) {
 
 			if (timer[player_turn]>=60){
 				close(client_sockets[player_turn]);
+				player_turn = player_turn==0 ? 1: 0;
+				continue;
 			}
 
 			printf("Omer 013\n");
@@ -317,7 +303,10 @@ int main(int argc , char** argv) {
 				if (FD_ISSET(sock,&write_fds)){
 
 					printf("Omer 016\n");
-					i= player_turn==0 ? queue_head_1 : queue_head_2;
+					i= queue_head[player_turn];
+					if (DEBUG){
+						printf("queue head:%d, client #%d\n",i,player_turn+1);
+					}
 					if (start_game || msgs_to_send[player_turn][i].type == INIT_MSG ) {
 
 						printf("Omer 017\n");
@@ -339,15 +328,8 @@ int main(int argc , char** argv) {
 						//finished sending the message
 						else {
 
-							if (player_turn==0){
-								printf("Omer 019\n");
-								queue_head_1++;
-								queue_head_1 %=MSG_NUM;
-							}
-							else {
-								queue_head_2++;
-								queue_head_2%=MSG_NUM;
-							}
+							queue_head[player_turn]++;
+							queue_head[player_turn]%=MSG_NUM;
 							offset[player_turn]=0;
 							msg_fully_sent[player_turn]=1;
 							switch (msgs_to_send[player_turn][i].type){
@@ -357,34 +339,34 @@ int main(int argc , char** argv) {
 
 							case (INIT_MSG):
 
-									init_msg_sent[player_turn]=1;
+							init_msg_sent[player_turn]=1;
 
-									queue_tail[player_turn]++;
-									queue_tail[player_turn]%= MSG_NUM;
-									msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
-									msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
+							queue_tail[player_turn]++;
+							queue_tail[player_turn]%= MSG_NUM;
+							msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
+							msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
 
-									if (DEBUG){
-										printf("sent init\n");
-									}
+							if (DEBUG){
+								printf("sent init\n");
+							}
 							break;
 
 							case(SERVER_MSG):
-											if (DEBUG){
-												printf("Omer 021\n");
-											}
-											if (!first_smsg_recv[player_turn]){
-												first_smsg_recv[player_turn]=1;
-												//first server msg was sent.the tail is now the next index.
-												queue_tail[player_turn]++;
-												queue_tail[player_turn]%= MSG_NUM;
-											}
-											if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
-												close(client_sockets[player_turn]);
-												clients_connected--;
-												client_sockets[player_turn]=-1;
-												player_turn= (player_turn==0)? 1: 0;
-											}
+							if (DEBUG){
+								printf("Omer 021\n");
+							}
+							if (!first_smsg_recv[player_turn]){
+								first_smsg_recv[player_turn]=1;
+								//first server msg was sent.the tail is now the next index.
+								queue_tail[player_turn]++;
+								queue_tail[player_turn]%= MSG_NUM;
+							}
+							if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
+								close(client_sockets[player_turn]);
+								clients_connected--;
+								client_sockets[player_turn]=-1;
+								player_turn= (player_turn==0)? 1: 0;
+							}
 							break;
 
 							default:
@@ -401,7 +383,7 @@ int main(int argc , char** argv) {
 
 				printf("Omer 022\n");
 
-				i= opp_player==0 ? queue_head_1 : queue_head_2;
+				i= queue_head[opp_player];
 				if (msgs_to_send[opp_player][i].type==CHAT_MSG || msgs_to_send[opp_player][i].type==INIT_MSG ||
 						(msgs_to_send[opp_player][i].type==SERVER_MSG && !first_smsg_recv[opp_player])){
 
@@ -455,12 +437,8 @@ int main(int argc , char** argv) {
 								first_smsg_recv[opp_player]=1;
 								queue_tail[opp_player] = (queue_tail[opp_player]+1) % MSG_NUM;
 							}
-							if (opp_player==0){
-								queue_head_1 = (queue_head_1+1) % MSG_NUM;
-							}
-							else {
-								queue_head_2=(queue_head_2+1)%MSG_NUM;
-							}
+							queue_head[opp_player]++;
+							queue_head[opp_player]%=MSG_NUM;
 							offset[opp_player]=0;
 							msg_fully_sent[opp_player]=1;
 
@@ -482,7 +460,7 @@ int main(int argc , char** argv) {
 			if (msg_fully_sent[player_turn] && first_smsg_recv[player_turn]){
 
 				printf("Omer 028\n");
-				time.tv_sec=30;
+				time.tv_sec=20;
 				ret_val=select(max_fd+1,&read_fds,NULL,NULL,&time);
 
 				printf("Omer 029\n");
@@ -493,7 +471,7 @@ int main(int argc , char** argv) {
 				if (FD_ISSET(sock,&read_fds)){
 
 					printf("Omer 030\n");
-					ret_val=recieveClientMessage(player_turn,types,sock,&c_offset[player_turn],c_msg_recieved);
+					ret_val=recieveClientMessage(player_turn,sock,&c_offset[player_turn],c_msg_recieved);
 					if (ret_val<0){
 						printf("Failed recieving message from client #%d: %s.\n",player_turn+1,strerror(errno));
 						break;
@@ -503,7 +481,7 @@ int main(int argc , char** argv) {
 				}
 				else {
 					if (cmsg_fully_recieved[player_turn]){
-						cmsg_recv[player_turn]=0;
+						cmsg_recv[player_turn]=0; //no message was recieved.
 					}
 				}
 
@@ -517,7 +495,7 @@ int main(int argc , char** argv) {
 
 				printf("Omer 032\n");
 				sock=client_sockets[opp_player];
-				ret_val=recieveClientMessage(opp_player,types,sock,&c_offset[opp_player],c_msg_recieved);
+				ret_val=recieveClientMessage(opp_player,sock,&c_offset[opp_player],c_msg_recieved);
 				cmsg_recv[opp_player]=1;
 				printf("Omer 033\n");
 				if (ret_val<0){
@@ -532,6 +510,10 @@ int main(int argc , char** argv) {
 				if (cmsg_fully_recieved[opp_player]){
 					cmsg_recv[opp_player]=0;
 				}
+				if (DEBUG){
+					printf("Tomer 033.5\n");
+				}
+
 			}
 
 			printf("Omer 034\n");
@@ -543,7 +525,7 @@ int main(int argc , char** argv) {
 
 				printf("Omer 035\n");
 
-				if (types[opp_player]==CHAT_MSG){
+				if (c_msg_recieved[opp_player].type==CHAT_MSG){
 					msgs_to_send[player_turn][i].data.chat=c_msg_recieved[opp_player].data.chat;
 					msgs_to_send[player_turn][i].type=CHAT_MSG;
 				}
@@ -595,6 +577,9 @@ int main(int argc , char** argv) {
 				//if we got here, we have a client move waiting.
 				short num_cubes=c_msg.data.client_move.num_cubes_to_remove;
 				char heap_name = c_msg.data.client_move.heap_name;
+				if (DEBUG){
+					printf("num_cubes:%d , heap:%c\n",num_cubes,heap_name);
+				}
 				if (heap_name==QUIT_CHAR){
 					//disconnect from client
 					close(client_sockets[player_turn]);
@@ -626,6 +611,9 @@ int main(int argc , char** argv) {
 					else {
 						// Illegal move (trying to get more cubes than available).
 						am_msg.legal = ILLEGAL_MOVE;
+						if (DEBUG){
+							printf("illegal\n");
+						}
 					}
 
 					//informing the player of the updated heaps sizes only if it is a legal move.
