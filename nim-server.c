@@ -254,6 +254,7 @@ int main(int argc , char** argv) {
 				temp_type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].data.init_msg=init_s_msg;
+				queue_head[init_s_msg.client_num]++; // Added message - moving queue head.
 			}
 
 			//try letting the 3rd client know he is rejected.
@@ -294,7 +295,9 @@ int main(int argc , char** argv) {
 			if ((cmsg_fully_recieved[player_turn]) && (queue_sent[player_turn] < queue_head[player_turn])) {
 				// There is no partially received message, and there are messages to send in the queue.
 
+				printf("Here\n");
 				if (offset[player_turn] == -1) {
+					printf("%d %d %d\n", player_turn, queue_sent[player_turn], queue_head[player_turn]);
 					// No partially sent message. Getting next msg from queue and initializing offset.
 					current_msg[player_turn] = msgs_to_send[player_turn][queue_sent[player_turn] + 1];
 					offset[player_turn] = 0;
