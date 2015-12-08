@@ -152,7 +152,6 @@ int main(int argc , char** argv) {
 	msg current_msg[NUM_CLIENTS];
 	short init_msg_sent[NUM_CLIENTS];
 	client_msg c_msg_recieved[NUM_CLIENTS];
-	msg_type temp_type;
 	int start_game=0;
 	struct timeval time;
 	short first_smsg_recv[NUM_CLIENTS];
@@ -226,8 +225,6 @@ int main(int argc , char** argv) {
 			//setting the message we want to send;
 			if (clients_connected<=2 && !init_msg_sent[init_s_msg.client_num]){
 
-
-				temp_type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].type=INIT_MSG;
 				msgs_to_send[init_s_msg.client_num][0].data.init_msg=init_s_msg;
 				queue_head[init_s_msg.client_num]++; // Added message - moving queue head.
@@ -260,21 +257,44 @@ int main(int argc , char** argv) {
 		//its an IO operation. all sockets are connected.
 		else  if (clients_connected>0){
 
+
+			int opp_player = player_turn == 0 ? 1 : 0 ;
 			timer[player_turn] = -1*timer[player_turn] +(double) clock()/ CLOCKS_PER_SEC ;
 
+			//player disconnected
 			if (timer[player_turn]>=60){
+
 				close(client_sockets[player_turn]);
+				client_sockets[player_turn]=-1;
+
+				i = queue_head[opp_player];
+				queue_head[opp_player]++;
+				queue_head[opp_player] %= MSG_NUM;
+				msg temp_msg;
+				//send a message to the client and then a server msg , letting him know he won.
+				temp_msg.type=CHAT_MSG;
+				char* chat_msg;
+				chat_msg = (player_turn==0)? "client 1 disconnected from the server": "client 2 disconnected from the server";
+				memcpy(&temp_msg.data.chat.msg,chat_msg,MSG_MAX_SIZE);
+				msgs_to_send[opp_player][i]=temp_msg;
+
+				memset(&temp_msg,0,sizeof(msg)); //initilizing the msg for re-use.
+				temp_msg.type=SERVER_MSG;
+				temp_msg.data.s_msg.winner=CLIENT_WIN;
+				temp_msg.data.s_msg.player_turn=opp_player;
+				msgs_to_send[opp_player][queue_head[opp_player]]=temp_msg;
+				queue_head[opp_player]++;
+				queue_head[opp_player] %= MSG_NUM;
+
 				player_turn = player_turn==0 ? 1: 0;
 				continue;
 			}
 
-			int opp_player = player_turn == 0 ? 1 : 0 ;
+
 
 			if ((cmsg_fully_recieved[player_turn]) && (queue_sent[player_turn] < queue_head[player_turn]-1)) {
 
 				// There is no partially received message, and there are messages to send in the queue.
-
-
 
 				if (offset[player_turn] == -1) {
 
@@ -446,8 +466,8 @@ int main(int argc , char** argv) {
 
 			//a full message was sent to the client, now we want to recieve a reply.
 			if (msg_fully_sent[player_turn] && first_smsg_recv[player_turn]){
-
-				ret_val=select(max_fd+1,&read_fds,NULL,NULL,NULL);
+				//time.tv_sec=20;
+				ret_val=select(max_fd+1,&read_fds,NULL,NULL,&time);
 
 
 				if (ret_val< 0) {
@@ -457,7 +477,7 @@ int main(int argc , char** argv) {
 				sock=client_sockets[player_turn];
 				if (FD_ISSET(sock,&read_fds)){
 
-					printf("Omer 030\n");
+
 					ret_val=recieveClientMessage(player_turn,sock,&c_offset[player_turn],c_msg_recieved);
 					if (ret_val<0){
 						printf("Failed recieving message from client #%d: %s.\n",player_turn+1,strerror(errno));
@@ -646,7 +666,6 @@ int main(int argc , char** argv) {
 					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
 					msgs_to_send[opp_player][i].type=SERVER_MSG;
 
-					printf("server msg is in index: %d\n",i);
 				}
 			}
 		}
