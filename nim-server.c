@@ -160,8 +160,9 @@ int main(int argc , char** argv) {
 	int player_turn =0; // player 0 or 1
 	int clients_connected=0;
 	msg msgs_to_send[NUM_CLIENTS][MSG_NUM]; //void because it can be any kind of server msg.
-	int queue_tail[NUM_CLIENTS];
+	int queue_sent[NUM_CLIENTS];
 	int queue_head[NUM_CLIENTS];
+	msg current_msg[NUM_CLIENTS];
 	short init_msg_sent[NUM_CLIENTS];
 	client_msg c_msg_recieved[NUM_CLIENTS];
 	msg_type types[NUM_CLIENTS];
@@ -175,13 +176,17 @@ int main(int argc , char** argv) {
 	cmsg_fully_recieved[0] = 1;
 	cmsg_fully_recieved[1] = 1;
 
+	queue_sent[0] = -1;
+	queue_sent[1] = -1;
+
+	offset[0] = -1;
+	offset[1] = -1;
+
 	memset(init_msg_sent,0,NUM_CLIENTS);
 	memset(first_smsg_recv,0,NUM_CLIENTS);
 	memset(cmsg_recv,0,NUM_CLIENTS);
-	memset(queue_tail,0,NUM_CLIENTS);
 	memset(queue_head,0,NUM_CLIENTS);
 	memset(msg_fully_sent,0,NUM_CLIENTS);
-	memset(offset,0,NUM_CLIENTS);
 	memset(c_offset,0,NUM_CLIENTS);
 
 	if (DEBUG){
@@ -286,9 +291,16 @@ int main(int argc , char** argv) {
 			printf("Omer 013\n");
 			int opp_player = player_turn == 0 ? 1 : 0 ;
 			//if player's message was not fully recieved, we won't send him a new message until we recieve full message
-			if (cmsg_fully_recieved[player_turn]){
+			if ((cmsg_fully_recieved[player_turn]) && (queue_sent[player_turn] < queue_head[player_turn])) {
+				// There is no partially received message, and there are messages to send in the queue.
 
-				printf("Omer 014\n");
+				if (offset[player_turn] == -1) {
+					// No partially sent message. Getting next msg from queue and initializing offset.
+					current_msg[player_turn] = msgs_to_send[player_turn][queue_sent[player_turn] + 1];
+					offset[player_turn] = 0;
+				}
+
+				printf("Omer 014 - %d\n", current_msg[player_turn].type == SERVER_MSG);
 
 				sock=client_sockets[player_turn];
 
@@ -304,16 +316,17 @@ int main(int argc , char** argv) {
 
 					printf("Omer 016\n");
 					i= queue_head[player_turn];
+
 					if (DEBUG){
 						printf("queue head:%d, client #%d\n",i,player_turn+1);
 					}
-					if (start_game || msgs_to_send[player_turn][i].type == INIT_MSG ) {
+					if (start_game || current_msg[player_turn].type == INIT_MSG ) {
 
 						printf("Omer 017\n");
 
-						size=sizeof(msgs_to_send[player_turn][i])-offset[player_turn]; //decrease the num of bytes already sent.
+						size=sizeof(current_msg[player_turn])-offset[player_turn]; //decrease the num of bytes already sent.
 						//first byte sent is the type and it will be sent for sure(at least one byte is sent).
-						ret_val = send(sock, &(msgs_to_send[player_turn][i])+offset[player_turn], size,0);
+						ret_val = send(sock, &(current_msg[player_turn])+offset[player_turn], size,0);
 						if (ret_val ==-1){
 							printf("Error sending message to client #%d: %s\n",player_turn-1,strerror(errno));
 							break;
@@ -322,17 +335,17 @@ int main(int argc , char** argv) {
 						else if (ret_val<size) {
 
 							printf("Omer 018\n");
-							offset[player_turn] +=ret_val ;
+							offset[player_turn] += ret_val;
 							msg_fully_sent[player_turn]=0;
 						}
 						//finished sending the message
 						else {
 
-							queue_head[player_turn]++;
-							queue_head[player_turn]%=MSG_NUM;
-							offset[player_turn]=0;
+							offset[player_turn] = -1;
 							msg_fully_sent[player_turn]=1;
-							switch (msgs_to_send[player_turn][i].type){
+							queue_sent[player_turn]++;
+							queue_sent[player_turn] %= MSG_NUM;
+							switch (current_msg[player_turn].type){
 							case (AM_MSG):
 									player_turn= player_turn==0 ? 1 : 0;
 							break;
@@ -341,10 +354,11 @@ int main(int argc , char** argv) {
 
 							init_msg_sent[player_turn]=1;
 
-							queue_tail[player_turn]++;
-							queue_tail[player_turn]%= MSG_NUM;
-							msgs_to_send[player_turn][queue_tail[player_turn]].type=SERVER_MSG;
-							msgs_to_send[player_turn][queue_tail[player_turn]].data.s_msg=s_msg[player_turn];
+							// Adding initial server message.
+							msgs_to_send[player_turn][queue_head[player_turn]].type=SERVER_MSG;
+							msgs_to_send[player_turn][queue_head[player_turn]].data.s_msg=s_msg[player_turn];
+							queue_head[player_turn]++;
+							queue_head[player_turn] %= MSG_NUM;
 
 							if (DEBUG){
 								printf("sent init\n");
@@ -358,10 +372,10 @@ int main(int argc , char** argv) {
 							if (!first_smsg_recv[player_turn]){
 								first_smsg_recv[player_turn]=1;
 								//first server msg was sent.the tail is now the next index.
-								queue_tail[player_turn]++;
-								queue_tail[player_turn]%= MSG_NUM;
+//								queue_tail[player_turn]++;
+//								queue_tail[player_turn]%= MSG_NUM;
 							}
-							if (msgs_to_send[player_turn][i].data.s_msg.winner != NO_WIN){
+							if (current_msg[player_turn].data.s_msg.winner != NO_WIN){
 								close(client_sockets[player_turn]);
 								clients_connected--;
 								client_sockets[player_turn]=-1;
@@ -379,13 +393,19 @@ int main(int argc , char** argv) {
 			}
 
 
-			if (cmsg_fully_recieved[opp_player]){
+			if ((cmsg_fully_recieved[opp_player]) && (queue_sent[opp_player] < queue_head[opp_player])) {
+				// There is no partially received message, and there are messages to send in the queue.
 
+				if (offset[opp_player] == -1) {
+					// No partially sent message. Getting next msg from queue and initializing offset.
+					current_msg[opp_player] = msgs_to_send[opp_player][queue_sent[opp_player] + 1];
+					offset[opp_player] = 0;
+				}
 				printf("Omer 022\n");
 
 				i= queue_head[opp_player];
-				if (msgs_to_send[opp_player][i].type==CHAT_MSG || msgs_to_send[opp_player][i].type==INIT_MSG ||
-						(msgs_to_send[opp_player][i].type==SERVER_MSG && !first_smsg_recv[opp_player])){
+				if (current_msg[opp_player].type==CHAT_MSG || current_msg[opp_player].type==INIT_MSG ||
+						(current_msg[opp_player].type==SERVER_MSG && !first_smsg_recv[opp_player])){
 
 					printf("Omer 023\n");
 					sock=client_sockets[opp_player];
@@ -405,9 +425,9 @@ int main(int argc , char** argv) {
 
 						printf("Omer 024\n");
 
-						size=sizeof(msgs_to_send[opp_player][i])-offset[opp_player]; //decrease the num of bytes already sent.
+						size=sizeof(current_msg[opp_player])-offset[opp_player]; //decrease the num of bytes already sent.
 						//first byte sent is the type and it will be sent for sure(at least one byte is sent).
-						ret_val = send(sock, &(msgs_to_send[opp_player][i])+offset[opp_player], size,0);
+						ret_val = send(sock, &(current_msg[opp_player])+offset[opp_player], size,0);
 
 
 						printf("Omer 025\n");
@@ -423,25 +443,27 @@ int main(int argc , char** argv) {
 						//finished sending the message
 						else {
 
+							offset[opp_player] = -1;
+							msg_fully_sent[opp_player]=1;
+							queue_sent[opp_player]++;
+							queue_sent[opp_player] %= MSG_NUM;
+
 							printf("Omer 026\n");
-							if (msgs_to_send[opp_player][i].type==INIT_MSG){
+							if (current_msg[opp_player].type==INIT_MSG){
 								init_msg_sent[opp_player]=1;
-								queue_tail[opp_player] = (queue_tail[opp_player]+1) % MSG_NUM;
-								msgs_to_send[opp_player][queue_tail[opp_player]].type=SERVER_MSG;
-								msgs_to_send[opp_player][queue_tail[opp_player]].data.s_msg=s_msg[opp_player];
+								msgs_to_send[opp_player][queue_head[opp_player]].type=SERVER_MSG;
+								msgs_to_send[opp_player][queue_head[opp_player]].data.s_msg=s_msg[opp_player];
+								queue_head[opp_player]++;
+								queue_head[opp_player] %= MSG_NUM;
+
 								if (DEBUG){
 									printf("init msg sent!\n");
 								}
 							}
-							else if (msgs_to_send[opp_player][i].type==SERVER_MSG){
+							else if (current_msg[opp_player].type==SERVER_MSG){
 								first_smsg_recv[opp_player]=1;
-								queue_tail[opp_player] = (queue_tail[opp_player]+1) % MSG_NUM;
+//								queue_tail[opp_player] = (queue_tail[opp_player]+1) % MSG_NUM;
 							}
-							queue_head[opp_player]++;
-							queue_head[opp_player]%=MSG_NUM;
-							offset[opp_player]=0;
-							msg_fully_sent[opp_player]=1;
-
 
 						}
 
@@ -520,8 +542,9 @@ int main(int argc , char** argv) {
 
 			//opponent message wad fully recieved.
 			if (cmsg_fully_recieved[opp_player] && cmsg_recv[opp_player]){
-				i=queue_tail[player_turn] % MSG_NUM;
-				queue_tail[player_turn]=i+1;
+				i = queue_head[player_turn];
+				queue_head[player_turn]++;
+				queue_head[player_turn] %= MSG_NUM;
 
 				printf("Omer 035\n");
 
@@ -538,8 +561,8 @@ int main(int argc , char** argv) {
 						client_sockets[player_turn]=-1;
 						clients_connected--;
 						s_msg[player_turn].winner=CLIENT_WIN; // no need to update rest of the message. only matters is that he won.
-						i=queue_tail[player_turn] % MSG_NUM;
-						queue_tail[player_turn]=i+1;
+//						i=queue_tail[player_turn] % MSG_NUM;
+//						queue_tail[player_turn]=i+1;
 						msgs_to_send[player_turn][i].type=SERVER_MSG;
 						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
 						player_turn = (player_turn==0) ? 1 : 0;
@@ -566,8 +589,9 @@ int main(int argc , char** argv) {
 
 				c_msg=c_msg_recieved[player_turn];
 				if (types[player_turn]==CHAT_MSG){
-					i=queue_tail[opp_player] % MSG_NUM;
-					queue_tail[opp_player]=i+1;
+					i = queue_head[opp_player];
+					queue_head[opp_player]++;
+					queue_head[opp_player] %= MSG_NUM;
 					msgs_to_send[opp_player][i].data.chat=c_msg.data.chat;
 					msgs_to_send[opp_player][i].type=CHAT_MSG;
 					continue;
@@ -586,8 +610,9 @@ int main(int argc , char** argv) {
 					client_sockets[player_turn]=-1;
 					clients_connected--;
 					s_msg[opp_player].winner=CLIENT_WIN;
-					i=queue_tail[opp_player] % MSG_NUM;
-					queue_tail[opp_player]=i+1;
+					i = queue_head[opp_player];
+					queue_head[opp_player]++;
+					queue_head[opp_player] %= MSG_NUM;
 					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
 					msgs_to_send[opp_player][i].type=SERVER_MSG;
 
@@ -631,8 +656,9 @@ int main(int argc , char** argv) {
 					printf("Omer 042\n");
 
 					//adding am_msg to the current player's msgs queue.
-					i=queue_tail[player_turn] % MSG_NUM;
-					queue_tail[player_turn]=i+1;
+					i = queue_head[player_turn];
+					queue_head[player_turn]++;
+					queue_head[player_turn] %= MSG_NUM;
 					msgs_to_send[player_turn][i].data.am_msg=am_msg;
 					msgs_to_send[player_turn][i].type=AM_MSG;
 
@@ -653,8 +679,9 @@ int main(int argc , char** argv) {
 						s_msg[player_turn].winner= CLIENT_WIN;
 
 						//adding the server msg to the current player's turn. letting him know he won.
-						i=queue_tail[player_turn] % MSG_NUM;
-						queue_tail[player_turn]=i+1;
+						i = queue_head[player_turn];
+						queue_head[player_turn]++;
+						queue_head[player_turn] %= MSG_NUM;
 						msgs_to_send[player_turn][i].data.s_msg=s_msg[player_turn];
 						msgs_to_send[player_turn][i].type=SERVER_MSG;
 					}
@@ -663,8 +690,9 @@ int main(int argc , char** argv) {
 					}
 
 					//adding the server msg to the next player's msgs queue.
-					i=queue_tail[opp_player] % MSG_NUM;
-					queue_tail[opp_player]=i+1;
+					i = queue_head[opp_player];
+					queue_head[opp_player]++;
+					queue_head[opp_player] %= MSG_NUM;
 					msgs_to_send[opp_player][i].data.s_msg=s_msg[opp_player];
 					msgs_to_send[opp_player][i].type=SERVER_MSG;
 
